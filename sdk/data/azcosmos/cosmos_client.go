@@ -329,6 +329,36 @@ func (c *Client) sendPostRequest(
 	return c.executeAndEnsureSuccessResponse(ctx, req)
 }
 
+func (c *Client) sendCrossPartitionQueryRequest(
+	path string,
+	ctx context.Context,
+	query string,
+	parameters []QueryParameter,
+	operationContext pipelineRequestOptions,
+	requestOptions cosmosRequestOptions,
+	requestEnricher func(*policy.Request)) (*http.Response, error) {
+	req, err := c.createRequest(path, ctx, http.MethodPost, operationContext, requestOptions, requestEnricher)
+	if err != nil {
+		return nil, err
+	}
+
+	err = azruntime.MarshalAsJSON(req, queryBody{
+		Query:      query,
+		Parameters: parameters,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	req.Raw().Header.Add(cosmosHeaderQuery, "True")
+	// Override content type for query
+	req.Raw().Header.Set(headerContentType, cosmosHeaderValuesQuery)
+	req.Raw().Header.Set(cosmosHeaderEnableCrossPartition, "true")
+
+	return c.executeAndEnsureSuccessResponse(ctx, req)
+}
+
 func (c *Client) sendQueryRequest(
 	path string,
 	ctx context.Context,

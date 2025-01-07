@@ -484,6 +484,63 @@ func (c *ContainerClient) DeleteItem(
 	return response, err
 }
 
+func (c *ContainerClient) NewCrossPartitionQueryItemsPager(query string, o *QueryOptions) *runtime.Pager[QueryItemsResponse] {
+	correlatedActivityId, _ := uuid.New()
+	h := headerOptionsOverride{
+		correlatedActivityId: &correlatedActivityId,
+	}
+
+	queryOptions := &QueryOptions{}
+	if o != nil {
+		originalOptions := *o
+		queryOptions = &originalOptions
+	}
+
+	operationContext := pipelineRequestOptions{
+		resourceType:          resourceTypeDocument,
+		resourceAddress:       c.link,
+		headerOptionsOverride: &h,
+	}
+
+	path, _ := generatePathForNameBased(resourceTypeDocument, operationContext.resourceAddress, true)
+
+	return runtime.NewPager(runtime.PagingHandler[QueryItemsResponse]{
+		More: func(page QueryItemsResponse) bool {
+			return page.ContinuationToken != nil
+		},
+		Fetcher: func(ctx context.Context, page *QueryItemsResponse) (QueryItemsResponse, error) {
+			var err error
+			spanName, err := c.getSpanForItems(operationTypeQuery)
+			if err != nil {
+				return QueryItemsResponse{}, err
+			}
+			ctx, endSpan := runtime.StartSpan(ctx, spanName.name, c.database.client.internal.Tracer(), &spanName.options)
+			defer func() { endSpan(err) }()
+			if page != nil {
+				if page.ContinuationToken != nil {
+					// Use the previous page continuation if available
+					queryOptions.ContinuationToken = page.ContinuationToken
+				}
+			}
+
+			azResponse, err := c.database.client.sendQueryRequest(
+				path,
+				ctx,
+				query,
+				queryOptions.QueryParameters,
+				operationContext,
+				queryOptions,
+				nil)
+
+			if err != nil {
+				return QueryItemsResponse{}, err
+			}
+
+			return newQueryResponse(azResponse)
+		},
+	})
+}
+
 // NewQueryItemsPager executes a single partition query in a Cosmos container.
 // query - The SQL query to execute.
 // partitionKey - The partition key to scope the query on.
