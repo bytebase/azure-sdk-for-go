@@ -5,6 +5,7 @@ package azcosmos
 
 // Headers
 const (
+	cosmosHeaderEnableCrossPartition               string = "x-ms-documentdb-query-enablecrosspartition"
 	cosmosHeaderRequestCharge                      string = "x-ms-request-charge"
 	cosmosHeaderActivityId                         string = "x-ms-activity-id"
 	cosmosHeaderEtag                               string = "etag"
