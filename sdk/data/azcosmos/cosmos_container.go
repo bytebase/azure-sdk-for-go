@@ -523,7 +523,7 @@ func (c *ContainerClient) NewCrossPartitionQueryItemsPager(query string, o *Quer
 				}
 			}
 
-			azResponse, err := c.database.client.sendQueryRequest(
+			azResponse, err := c.database.client.sendCrossPartitionQueryRequest(
 				path,
 				ctx,
 				query,
