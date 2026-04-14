@@ -12,7 +12,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2"
 )
 
 // Shows how to start consuming events in partitions in an Event Hub using the [ConsumerClient].
@@ -45,7 +45,7 @@ func Example_consumingEventsUsingConsumerClient() {
 		panic(err)
 	}
 
-	defer consumerClient.Close(context.TODO())
+	defer func() { _ = consumerClient.Close(context.TODO()) }()
 
 	partitionClient, err := consumerClient.NewPartitionClient(partitionID, &azeventhubs.PartitionClientOptions{
 		StartPosition: azeventhubs.StartPosition{
@@ -57,7 +57,7 @@ func Example_consumingEventsUsingConsumerClient() {
 		panic(err)
 	}
 
-	defer partitionClient.Close(context.TODO())
+	defer func() { _ = partitionClient.Close(context.TODO()) }()
 
 	// Will wait up to 1 minute for 100 events. If the context is cancelled (or expires)
 	// you'll get any events that have been collected up to that point.

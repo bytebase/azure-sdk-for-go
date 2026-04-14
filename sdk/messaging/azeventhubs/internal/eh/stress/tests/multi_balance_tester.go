@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/log"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2"
 )
 
 // MultiBalanceTester runs the BalanceTest multiple times against different
@@ -46,7 +46,7 @@ func MultiBalanceTester(ctx context.Context) error {
 			case s := <-ch:
 				golog.Println(s)
 			case <-ctx.Done():
-				break
+				return
 			}
 		}
 	}()

@@ -85,7 +85,7 @@ func (c *KeyCredential) buildCanonicalizedAuthHeader(isDatabaseAccount bool, met
 
 	resourceAddress, _ = url.PathUnescape(resourceAddress)
 
-	// https://docs.microsoft.com/en-us/rest/api/cosmos-db/access-control-on-cosmosdb-resources#constructkeytoken
+	// https://docs.microsoft.com/rest/api/cosmos-db/access-control-on-cosmosdb-resources#constructkeytoken
 	stringToSign := join(strings.ToLower(method), "\n", strings.ToLower(resourceTypePath), "\n", resourceAddress, "\n", strings.ToLower(xmsDate), "\n", "", "\n")
 	signature := c.computeHMACSHA256(stringToSign)
 
@@ -130,7 +130,7 @@ func (s *sharedKeyCredPolicy) Do(req *policy.Request) (*http.Response, error) {
 func join(strs ...string) string {
 	var sb strings.Builder
 	for _, str := range strs {
-		sb.WriteString(str)
+		fmt.Fprint(&sb, str)
 	}
 	return sb.String()
 }

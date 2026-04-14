@@ -1,16 +1,64 @@
 # Release History
 
-## 1.8.0 (Unreleased)
+## 1.10.1-beta.1 (Unreleased)
 
 ### Features Added
-
-- Client allows the endpoint to be overridden with CustomEndpoint, allowing the use of TCP proxies with AMQP.
 
 ### Breaking Changes
 
 ### Bugs Fixed
 
 ### Other Changes
+
+## 1.10.0 (2025-08-05)
+
+### Features Added
+
+- Allow a user to settle and renew message locks with only a lock token, so long as they are not using Service Bus sessions. This makes it possible to settle a message in a completely separate process or service. See [ExampleReceiver_CompleteMessage_settleWithLockToken](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus#example-package-SettleWithLockToken) for an example. (PR#24966)
+
+## 1.9.1 (2025-07-10)
+
+### Bugs Fixed
+
+- Receiver's, in ReceiveModeReceiveAndDelete, now allow ReceiveMessages() calls after Receiver.Close. These calls will only draw from any internally cached messages that 
+  accumulated between the final call to ReceiveMessages() and Close. See an example of how to do this here: [ExampleReceiver_ReceiveMessages_receiveAndDelete](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus#example-Receiver.ReceiveMessages-ReceiveAndDelete)
+  for an example. (PR#24864)
+
+## 1.9.0 (2025-05-06)
+
+### Features Added
+
+- Added a new azservicebus.Code value, `CodeNotFound`, which indicates the queue, topic or subscription doesn't exist. (PR#24501)
+
+## 1.8.1 (2025-04-08)
+
+### Bugs Fixed
+
+- AcceptNextSessionFor(Queue/Subscription) and AcceptSessionFor(Queue/Subscription) no longer need to call RenewSessionLock before returning the accepted
+  session. (PR#24345)
+- Some Service Bus annotation values can be set to nil values, which would panic our Receiver. These are now checked, and set to nil appropriately. (PR#24312)
+
+## 1.8.0 (2025-02-11)
+
+### Features Added
+
+- ServiceBusClient allows the endpoint to be overridden with ServiceBusClientOptions.CustomEndpoint, to use TCP proxies with AMQP. (PR#23843)
+
+## 1.8.0-beta.2 (2025-01-14)
+
+### Features Added
+
+- ServiceBusClient allows the endpoint to be overridden with ServiceBusClientOptions.CustomEndpoint, to use TCP proxies with AMQP. (PR#23843)
+
+### Bugs Fixed
+
+- Receivers had a bug where a message could be received but not returned to the user. Callers would see that, occasionally, a message would not be returned from ReceiveMessages(), but would appear to have been received. Thanks to @patrickwhite256 for reporting this issue. (PR#23929)
+
+## 1.7.4 (2025-01-13)
+
+### Bugs Fixed
+
+- Receivers had a bug where a message could be received but not returned to the user. Callers would see that, occasionally, a message would not be returned from ReceiveMessages(), but would appear to have been received. Thanks to @patrickwhite256 for reporting this issue. (PR#23929)
 
 ## 1.7.3 (2024-10-14)
 

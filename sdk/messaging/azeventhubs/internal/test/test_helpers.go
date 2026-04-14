@@ -18,7 +18,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	azlog "github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/test/credential"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/exported"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2/internal/exported"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 )
@@ -50,18 +50,14 @@ func CaptureLogsForTestWithChannel(messagesCh chan string) func() []string {
 
 		var messages []string
 
-	Loop:
 		for {
 			select {
 			case msg := <-messagesCh:
 				messages = append(messages, msg)
-				break
 			default:
-				break Loop
+				return messages
 			}
 		}
-
-		return messages
 	}
 }
 
@@ -99,6 +95,9 @@ type ConnectionParamsForTest struct {
 	EventHubName          string
 	EventHubLinksOnlyName string
 	EventHubNamespace     string
+	GeoDRNamespace        string // optional: resource requires special setup to create, so it's manual
+	GeoDRHubName          string // optional: resource requires special setup to create, so it's manual
+	GeoDRStorageEndpoint  string // optional: resource requires special setup to create, so it's manual
 	StorageEndpoint       string
 	ResourceGroup         string
 	SubscriptionID        string
@@ -106,6 +105,12 @@ type ConnectionParamsForTest struct {
 }
 
 func (c ConnectionParamsForTest) CS(t *testing.T) struct{ Primary, ListenOnly, SendOnly, Storage string } {
+	if val, exists := os.LookupEnv("EVENTHUB_CONNECTION_STRING_LISTEN_ONLY"); exists && val == "" {
+		// This happens if we're not in the TME subscription - the variable will just be set to an empty string
+		// rather than not existing, altogether.
+		t.Skip("Not in TME, skipping connection string tests")
+	}
+
 	envVars := mustGetEnvironmentVars(t, []string{
 		"EVENTHUB_CONNECTION_STRING_LISTEN_ONLY",
 		"EVENTHUB_CONNECTION_STRING_SEND_ONLY",
@@ -144,6 +149,9 @@ func GetConnectionParamsForTest(t *testing.T) ConnectionParamsForTest {
 		EventHubName:          envVars["EVENTHUB_NAME"],
 		EventHubLinksOnlyName: envVars["EVENTHUB_LINKSONLY_NAME"],
 		EventHubNamespace:     envVars["EVENTHUB_NAMESPACE"],
+		GeoDRNamespace:        os.Getenv("EVENTHUBS_GEODR_NAMESPACE"),
+		GeoDRHubName:          os.Getenv("EVENTHUBS_GEODR_HUBNAME"),
+		GeoDRStorageEndpoint:  os.Getenv("EVENTHUBS_GEODR_CHECKPOINTSTORE_STORAGE_ENDPOINT"),
 		ResourceGroup:         envVars["RESOURCE_GROUP"],
 		StorageEndpoint:       envVars["CHECKPOINTSTORE_STORAGE_ENDPOINT"],
 		SubscriptionID:        envVars["AZURE_SUBSCRIPTION_ID"],

@@ -1,15 +1,75 @@
 # Release History
 
-## 1.3.1 (Unreleased)
+## 1.4.5-beta.1 (Unreleased)
 
 ### Features Added
+* Added error code `PathIsTooDeep` which is returned when a path contains more than 63 path segments.
 
 ### Breaking Changes
 
 ### Bugs Fixed
-* Fix FilterBlob API if Query contains a space character. Fixes [#23546](https://github.com/Azure/azure-sdk-for-go/issues/23546)
 
 ### Other Changes
+
+## 1.4.4 (2026-01-12)
+
+### Features Added
+* Added support for service version 2026-02-06.
+
+## 1.4.3 (2025-10-16)
+
+### Other Changes
+* Updated service version to `2025-11-05`
+* Updated `azidentity` version to `1.13.0`
+* Updated `azcore` version to `1.19.1`
+* Updated `azblob` version to `v1.6.2`
+
+## 1.4.2 (2025-07-23)
+
+### Other Changes
+* Updated `azcore` version to `1.18.1`
+
+## 1.4.2-beta.1 (2025-07-08)
+
+### Bugs Fixed
+* Fix panic in File and Directory client DownloadStream and Get Properties on authentication failure.
+
+### Other Changes
+* Updated `azidentity` version to `1.10.1`
+
+## 1.4.1 (2025-04-28)
+
+### Other Changes
+* Updated `azidentity` version to `1.9.0`
+* Updated `azcore` version to `1.18.0`
+* Updated `azblob` version to `v1.6.1`
+
+## 1.4.1-beta.1 (2025-02-12)
+
+### Features Added
+* Upgraded service version to `2025-05-05`.
+
+### Other Changes
+* Updated `azidentity` version to `1.8.1`
+* Updated `azblob` version to `v1.6.1-beta.1`
+
+## 1.4.0 (2025-01-27)
+
+### Features Added
+* Upgraded service version to `2025-01-05`.
+* Updated `azidentity` version to `1.8.1`
+
+### Bugs Fixed
+* Fix panic when invalid sas is passed to get-properties call. Fixes [#23912](https://github.com/Azure/azure-sdk-for-go/issues/23912)
+* Added NewListDirectoryPathPager. Fixes [#23852](https://github.com/Azure/azure-sdk-for-go/issues/23852), [#21083](https://github.com/Azure/azure-sdk-for-go/issues/21083), [#18921](https://github.com/Azure/azure-sdk-for-go/issues/18921)
+
+### Other Changes
+* Updated `azblob` version to `v1.6.0`
+
+## 1.4.0-beta.1 (2025-01-15)
+
+### Other Changes
+* Updated `azblob` version to `v1.6.0-beta.1`
 
 ## 1.3.0 (2024-11-13)
 

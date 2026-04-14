@@ -9,7 +9,7 @@ The `armnetworkfunction` module provides operations for working with Azure Netwo
 ## Prerequisites
 
 - an [Azure subscription](https://azure.microsoft.com/free/)
-- Go 1.18 or above (You could download and install the latest version of Go from [here](https://go.dev/doc/install). It will replace the existing Go on your machine. If you want to install multiple Go versions on the same machine, you could refer this [doc](https://go.dev/doc/manage-install).)
+- [Supported](https://aka.ms/azsdk/go/supported-versions) version of Go (You could download and install the latest version of Go from [here](https://go.dev/doc/install). It will replace the existing Go on your machine. If you want to install multiple Go versions on the same machine, you could refer this [doc](https://go.dev/doc/manage-install).)
 
 ## Install the package
 
@@ -18,7 +18,7 @@ This project uses [Go modules](https://github.com/golang/go/wiki/Modules) for ve
 Install the Azure Network Function Manager module:
 
 ```sh
-go get github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/networkfunction/armnetworkfunction/v2
+go get github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/networkfunction/armnetworkfunction/v3
 ```
 
 ## Authorization
@@ -55,7 +55,7 @@ clientFactory, err := armnetworkfunction.NewClientFactory(<subscription ID>, cre
 A client groups a set of related APIs, providing access to its functionality. Create one or more clients to access the APIs you require using client factory.
 
 ```go
-client := clientFactory.NewClient()
+client := clientFactory.NewAzureTrafficCollectorsByResourceGroupClient()
 ```
 
 ## Fakes

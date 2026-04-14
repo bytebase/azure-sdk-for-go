@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2"
 )
 
 var consumerClient *azeventhubs.ConsumerClient
@@ -56,7 +56,7 @@ func ExampleConsumerClient_NewPartitionClient_receiveEvents() {
 		panic(err)
 	}
 
-	defer partitionClient.Close(context.TODO())
+	defer func() { _ = partitionClient.Close(context.TODO()) }()
 
 	// Using a context with a timeout will allow ReceiveEvents() to return with events it
 	// collected in a minute, or earlier if it actually gets all 100 events we requested.
@@ -111,7 +111,7 @@ func ExampleConsumerClient_NewPartitionClient_configuringPrefetch() {
 		panic(err)
 	}
 
-	defer partitionClient.Close(context.TODO())
+	defer func() { _ = partitionClient.Close(context.TODO()) }()
 
 	// You can configure the prefetch buffer size as well. The default is 300.
 	partitionClientWithCustomPrefetch, err := consumerClient.NewPartitionClient(partitionID, &azeventhubs.PartitionClientOptions{
@@ -122,7 +122,7 @@ func ExampleConsumerClient_NewPartitionClient_configuringPrefetch() {
 		panic(err)
 	}
 
-	defer partitionClientWithCustomPrefetch.Close(context.TODO())
+	defer func() { _ = partitionClientWithCustomPrefetch.Close(context.TODO()) }()
 
 	// And prefetch can be disabled if you prefer to manually control the flow of events. Excess
 	// events (that arrive after your ReceiveEvents() call has completed) will still be
@@ -135,7 +135,7 @@ func ExampleConsumerClient_NewPartitionClient_configuringPrefetch() {
 		panic(err)
 	}
 
-	defer partitionClientWithPrefetchDisabled.Close(context.TODO())
+	defer func() { _ = partitionClientWithPrefetchDisabled.Close(context.TODO()) }()
 
 	// Using a context with a timeout will allow ReceiveEvents() to return with events it
 	// collected in a minute, or earlier if it actually gets all 100 events we requested.
@@ -168,5 +168,30 @@ func ExampleNewConsumerClient_usingCustomEndpoint() {
 
 	if err != nil {
 		panic(err)
+	}
+}
+
+func ExampleNewConsumerClient_configuringRetries() {
+	// `DefaultAzureCredential` tries several common credential types. For more credential types
+	// see this link: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/azidentity#readme-credential-types.
+	defaultAzureCred, err := azidentity.NewDefaultAzureCredential(nil)
+
+	if err != nil {
+		panic(err)
+	}
+
+	consumerClient, err = azeventhubs.NewConsumerClient("<ex: myeventhubnamespace.servicebus.windows.net>", "eventhub-name", azeventhubs.DefaultConsumerGroup, defaultAzureCred, &azeventhubs.ConsumerClientOptions{
+		RetryOptions: azeventhubs.RetryOptions{
+			// NOTE: these are the default values.
+			MaxRetries:    3,
+			RetryDelay:    time.Second,
+			MaxRetryDelay: 120 * time.Second,
+		},
+	})
+
+	if err != nil {
+		//  TODO: Update the following line with your application specific error handling logic
+		fmt.Printf("ERROR: %s\n", err)
+		return
 	}
 }

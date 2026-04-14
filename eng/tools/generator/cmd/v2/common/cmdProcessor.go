@@ -44,8 +44,13 @@ func ExecuteGoGenerate(path string) error {
 	}
 
 	cmdWaitErr := cmd.Wait()
+	if cmdWaitErr == nil {
+		return nil
+	}
 
 	fmt.Println(stdoutBuffer.String())
+	fmt.Println(stderrBuffer.String())
+
 	if stdoutBuffer.Len() > 0 {
 		if strings.Contains(stdoutBuffer.String(), "error   |") {
 			// find first error message until last
@@ -57,9 +62,8 @@ func ExecuteGoGenerate(path string) error {
 		}
 	}
 
-	if cmdWaitErr != nil || stderrBuffer.Len() > 0 {
+	if stderrBuffer.Len() > 0 {
 		if stderrBuffer.Len() > 0 {
-			fmt.Println(stderrBuffer.String())
 			// filter go downloading log
 			// https://github.com/golang/go/blob/1f0c044d60211e435dc58844127544dd3ecb6a41/src/cmd/go/internal/modfetch/fetch.go#L201
 			lines := strings.Split(stderrBuffer.String(), "\n")
@@ -88,8 +92,8 @@ func ExecuteGoGenerate(path string) error {
 }
 
 // execute `pwsh Invoke-MgmtTestgen` command and fetch result
-func ExecuteExampleGenerate(path, packagePath, flag string) error {
-	cmd := exec.Command("pwsh", "../../../../eng/scripts/Invoke-MgmtTestgen.ps1", "-skipBuild", "-cleanGenerated", "-format", "-tidy", "-generateExample", packagePath, flag)
+func ExecuteExampleGenerate(path, packagePath string, flags []string) error {
+	cmd := exec.Command("pwsh", append([]string{"../../../../eng/scripts/Invoke-MgmtTestgen.ps1", "-skipBuild", "-cleanGenerated", "-format", "-tidy", "-generateExample", packagePath}, flags...)...)
 	cmd.Dir = path
 	output, err := cmd.CombinedOutput()
 	log.Printf("Result of `pwsh Invoke-MgmtTestgen` execution: \n%s", string(output))
@@ -119,7 +123,7 @@ func ExecuteGoimports(path string) error {
 }
 
 func ExecuteGitPush(path, remoteName, branchName string) (string, error) {
-	refName := fmt.Sprintf(branchName + ":" + branchName)
+	refName := branchName + ":" + branchName
 	cmd := exec.Command("git", "push", remoteName, refName)
 	cmd.Dir = path
 	msg, err := cmd.CombinedOutput()
@@ -183,20 +187,12 @@ func ExecuteGo(dir string, args ...string) error {
 	return nil
 }
 
-func ExecuteGoFmt(dir string, args ...string) error {
-	cmd := exec.Command("gofmt", args...)
-	cmd.Dir = dir
-	combinedOutput, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to execute `gofmt %s` '%s': %+v", strings.Join(args, " "), string(combinedOutput), err)
-	}
-
-	return nil
-}
-
 // execute tsp-client command
 func ExecuteTspClient(path string, args ...string) error {
-	cmd := exec.Command("tsp-client", args...)
+	// Use pinned tsp-client from eng/common/tsp-client instead of global npx
+	tspClientDir := filepath.Join(path, "eng", "common", "tsp-client")
+	args = append([]string{"--prefix", tspClientDir, "exec", "--no", "--", "tsp-client"}, args...)
+	cmd := exec.Command("npm", args...)
 	cmd.Dir = path
 
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -225,20 +221,33 @@ func ExecuteTspClient(path string, args ...string) error {
 
 	cmdWaitErr := cmd.Wait()
 	fmt.Println(stdoutBuffer.String())
+	fmt.Println(stderrBuffer.String())
 
+	if stdoutBuffer.Len() > 0 {
+		for _, line := range strings.Split(stdoutBuffer.String(), "\n") {
+			if len(strings.TrimSpace(line)) == 0 {
+				continue
+			}
+			if strings.Contains(line, "generation complete") {
+				return nil
+			}
+		}
+	}
 	if cmdWaitErr != nil || stderrBuffer.Len() > 0 {
 		if stderrBuffer.Len() > 0 {
-			log.Println(stderrBuffer.String())
-
-			// filter npm notice log
+			// filter npm notice & warning log
 			newErrMsgs := make([]string, 0)
 			for _, line := range strings.Split(stderrBuffer.String(), "\n") {
 				if len(strings.TrimSpace(line)) == 0 {
 					continue
 				}
-				if !strings.Contains(line, "npm notice") {
-					newErrMsgs = append(newErrMsgs, line)
+				if strings.Contains(line, "npm notice") {
+					continue
 				}
+				if strings.Contains(line, "npm warn") {
+					continue
+				}
+				newErrMsgs = append(newErrMsgs, line)
 			}
 
 			// filter diagnostic errors
@@ -284,6 +293,7 @@ func ExecuteTypeSpecGenerate(ctx *GenerateContext, emitOptions string, tspClient
 
 	args := []string{
 		"init",
+		"--update-if-exists",
 		"--tsp-config", tspConfigAbs,
 		"--commit", ctx.SpecCommitHash,
 		"--repo", ctx.SpecRepoURL[len("https://github.com/"):],

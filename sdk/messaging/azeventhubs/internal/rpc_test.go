@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/log"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/amqpwrap"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/mock"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/test"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2/internal/amqpwrap"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2/internal/mock"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2/internal/test"
 	"github.com/Azure/go-amqp"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
@@ -345,7 +345,7 @@ func TestRPCLinkBroadcastErrorWhenClosed(t *testing.T) {
 				rpcTesterProperty: []*rpcTestResp{},
 			},
 		})
-		require.ErrorIs(t, err, RPCLinkClosedErr)
+		require.ErrorIs(t, err, ErrRPCLinkClosed)
 	}()
 
 	<-tester.RPCLoopStarted
@@ -353,14 +353,14 @@ func TestRPCLinkBroadcastErrorWhenClosed(t *testing.T) {
 	require.NoError(t, link.Close(context.Background()))
 	<-ch
 
-	// and the error is cached so further calls also get RPCLinkClosedErr
+	// and the error is cached so further calls also get ErrRPCLinkClosed
 	// similar to what we do in go-amqp.
 	_, err = link.RPC(context.Background(), &amqp.Message{
 		ApplicationProperties: map[string]any{
 			rpcTesterProperty: []*rpcTestResp{},
 		},
 	})
-	require.ErrorIs(t, err, RPCLinkClosedErr)
+	require.ErrorIs(t, err, ErrRPCLinkClosed)
 }
 
 func TestRPCLinkCancelClientSideWait(t *testing.T) {

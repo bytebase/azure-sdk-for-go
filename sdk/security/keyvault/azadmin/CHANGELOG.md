@@ -1,6 +1,6 @@
 ## Release History
 
-### 1.3.1 (Unreleased)
+### 1.5.0 (Unreleased)
 
 #### Features Added
 
@@ -9,6 +9,24 @@
 #### Bugs Fixed
 
 #### Other Changes
+* Upgraded to API service version `2025-07-01`
+
+### 1.4.0 (2025-06-12)
+
+#### Features Added
+* Add fakes support (https://github.com/Azure/azure-sdk-for-go/tree/main/sdk/samples/fakes)
+
+#### Other Changes
+* Upgraded to API service version `7.6`
+
+### 1.4.0-beta.1 (2025-04-10)
+
+#### Features Added
+* Added `BeginPreFullBackup` and `BeginPreFullRestore` operations
+
+#### Other Changes
+* Upgraded to API service version `7.6-preview.2`
+* Upgraded dependencies
 
 ### 1.3.0 (2024-11-13)
 

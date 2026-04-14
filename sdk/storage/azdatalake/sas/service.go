@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
@@ -195,6 +192,8 @@ func (v DatalakeSignatureValues) SignWithUserDelegation(userDelegationCredential
 		v.AuthorizedObjectID,
 		v.UnauthorizedObjectID,
 		v.CorrelationID,
+		"", // Placeholder for SignedKeyDelegatedUserTenantId (future field)
+		"", // Placeholder for SignedDelegatedUserObjectID (future field)
 		v.IPRange.String(),
 		string(v.Protocol),
 		v.Version,

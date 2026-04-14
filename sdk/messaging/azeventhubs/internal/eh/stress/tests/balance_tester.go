@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/log"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/checkpoints"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2/checkpoints"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 )
@@ -139,7 +139,7 @@ func (bt *balanceTester) Run(ctx context.Context) error {
 					log.Writef(EventBalanceTest, "Balance not achieved, resetting balancedCount: %s", ibErr)
 					balancedCount = 0
 
-					bt.TC.TrackEvent("Unbalanced", map[string]string{
+					bt.TC.TrackEventWithProps(EventUnbalanced, map[string]string{
 						"Message": ibErr.Error(),
 					})
 					continue
@@ -159,7 +159,7 @@ func (bt *balanceTester) Run(ctx context.Context) error {
 				balancedCount++
 				log.Writef(EventBalanceTest, "Balanced, with %d consecutive checks", balancedCount)
 
-				bt.TC.TrackEvent("Balanced", map[string]string{
+				bt.TC.TrackEventWithProps(EventBalanced, map[string]string{
 					"Count":           fmt.Sprintf("%d", balancedCount),
 					"DurationSeconds": fmt.Sprintf("%d", firstBalance/time.Second),
 				})

@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
@@ -127,12 +124,16 @@ func extractTestProxyArchive(archivePath string, outputDir string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 	gzipReader, err := gzip.NewReader(file)
 	if err != nil {
 		return err
 	}
-	defer gzipReader.Close()
+	defer func() {
+		_ = gzipReader.Close()
+	}()
 
 	tarReader := tar.NewReader(gzipReader)
 
@@ -146,6 +147,9 @@ func extractTestProxyArchive(archivePath string, outputDir string) error {
 		}
 
 		targetPath := filepath.Join(outputDir, header.Name)
+		if !strings.HasPrefix(targetPath, filepath.Clean(outputDir)) {
+			return fmt.Errorf("illegal file path: %q", header.Name)
+		}
 
 		log.Println("Extracting", targetPath)
 
@@ -159,9 +163,9 @@ func extractTestProxyArchive(archivePath string, outputDir string) error {
 			if err != nil {
 				return err
 			}
-			defer file.Close()
-
-			if _, err := io.Copy(file, tarReader); err != nil {
+			_, err = io.Copy(file, tarReader)
+			_ = file.Close()
+			if err != nil {
 				return err
 			}
 		default:
@@ -174,7 +178,7 @@ func extractTestProxyArchive(archivePath string, outputDir string) error {
 
 func installTestProxy(archivePath string, outputDir string, proxyPath string) error {
 	var err error
-	if strings.HasSuffix(archivePath, ".zip") {
+	if filepath.Ext(archivePath) == ".zip" {
 		err = extractTestProxyZip(archivePath, outputDir)
 	} else {
 		err = extractTestProxyArchive(archivePath, outputDir)
@@ -233,8 +237,8 @@ func ensureTestProxyInstalled(proxyVersion string, proxyPath string, proxyDir st
 		// Therefore, if ctrl-c is pressed during download, the user will have to manually
 		// remove the lockfile in order to get the tests running again.
 		defer func() {
-			lock.Close()
-			os.Remove(lockFile)
+			_ = lock.Close()
+			_ = os.Remove(lockFile)
 		}()
 
 		break
@@ -337,10 +341,12 @@ func getProxyVersion(gitRoot string) (string, error) {
 	return proxyVersion, nil
 }
 
-func setTestProxyEnv(gitRoot string) {
+func setTestProxyEnv(gitRoot string) error {
 	devCertPath := filepath.Join(gitRoot, "eng/common/testproxy/dotnet-devcert.pfx")
-	os.Setenv("ASPNETCORE_Kestrel__Certificates__Default__Path", devCertPath)
-	os.Setenv("ASPNETCORE_Kestrel__Certificates__Default__Password", "password")
+	if err := os.Setenv("ASPNETCORE_Kestrel__Certificates__Default__Path", devCertPath); err != nil {
+		return err
+	}
+	return os.Setenv("ASPNETCORE_Kestrel__Certificates__Default__Password", "password")
 }
 
 func waitForProxyStart(cmd *exec.Cmd, options *RecordingOptions) (*TestProxyInstance, error) {
@@ -361,22 +367,24 @@ func waitForProxyStart(cmd *exec.Cmd, options *RecordingOptions) (*TestProxyInst
 		req.Close = true
 
 		resp, err := client.Do(req)
-		if resp != nil && resp.Body != nil {
-			resp.Body.Close()
-		}
 		if err != nil {
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
+		_ = resp.Body.Close()
 		return &TestProxyInstance{Cmd: cmd, Options: options}, nil
 	}
 
 	return nil, fmt.Errorf("test proxy server did not become available in the allotted time")
 }
 
+func inCI() bool {
+	return os.Getenv("TF_BUILD") != "" || os.Getenv("GITHUB_ACTIONS") != ""
+}
+
 func StartTestProxy(pathToRecordings string, options *RecordingOptions) (*TestProxyInstance, error) {
 	manualStart := strings.ToLower(os.Getenv(proxyManualStartEnv))
-	if manualStart == "true" {
+	if manualStart == "true" && !inCI() {
 		log.Printf("%s env variable is set to true, not starting test proxy...\n", proxyManualStartEnv)
 		return nil, nil
 	}
@@ -411,9 +419,13 @@ func StartTestProxy(pathToRecordings string, options *RecordingOptions) (*TestPr
 	if err != nil {
 		return nil, err
 	}
-	defer proxyLog.Close()
+	defer func() {
+		_ = proxyLog.Close()
+	}()
 
-	setTestProxyEnv(gitRoot)
+	if err := setTestProxyEnv(gitRoot); err != nil {
+		return nil, err
+	}
 
 	if options == nil {
 		options = defaultOptions()

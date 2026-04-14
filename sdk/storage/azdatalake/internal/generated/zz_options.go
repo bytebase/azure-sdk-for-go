@@ -40,7 +40,7 @@ type FileSystemClientCreateOptions struct {
 	RequestID *string
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 }
 
@@ -51,7 +51,7 @@ type FileSystemClientDeleteOptions struct {
 	RequestID *string
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 }
 
@@ -62,7 +62,7 @@ type FileSystemClientGetPropertiesOptions struct {
 	RequestID *string
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 }
 
@@ -95,17 +95,23 @@ type FileSystemClientListBlobHierarchySegmentOptions struct {
 	// analytics logging is enabled.
 	RequestID *string
 
-	// Include this parameter to specify one or more datasets to include in the response.. Specifying any value will set the value
-	// to deleted.
-	Showonly *string
+	// Include this parameter to specify one or more datasets to include in the response.
+	Showonly *ListBlobsShowOnly
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 }
 
 // FileSystemClientListPathsOptions contains the optional parameters for the FileSystemClient.NewListPathsPager method.
 type FileSystemClientListPathsOptions struct {
+	// Optional. A relative path within the specified directory where the listing will start from. For example, a recursive listing
+	// under directory folder1/folder2 with beginFrom as folder3/readmefile.txt
+	// will start listing from folder1/folder2/folder3/readmefile.txt. Please note that, multiple entity levels are supported
+	// for recursive listing. Non-recursive listing supports only one entity level. An
+	// error will appear if multiple entity levels are specified for non-recursive listing.
+	BeginFrom *string
+
 	// Optional. When deleting a directory, the number of paths that are deleted with each invocation is limited. If the number
 	// of paths to be deleted exceeds this limit, a continuation token is returned in
 	// this response header. When a continuation token is returned in the response, it must be specified in a subsequent invocation
@@ -124,7 +130,7 @@ type FileSystemClientListPathsOptions struct {
 	RequestID *string
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 
 	// Optional. Valid only when Hierarchical Namespace is enabled for the account. If "true", the user identity values returned
@@ -150,7 +156,7 @@ type FileSystemClientSetPropertiesOptions struct {
 	RequestID *string
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 }
 
@@ -211,8 +217,15 @@ type PathClientAppendDataOptions struct {
 	// analytics logging is enabled.
 	RequestID *string
 
+	// Required if the request body is a structured message. Specifies the message schema version and properties.
+	StructuredBodyType *string
+
+	// Required if the request body is a structured message. Specifies the length of the blob/file content inside the message
+	// body. Will always be smaller than Content-Length.
+	StructuredContentLength *int64
+
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 
 	// Specify the transactional crc64 for the body, to be validated by the service.
@@ -291,7 +304,7 @@ type PathClientCreateOptions struct {
 	SourceLeaseID *string
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 
 	// Optional and only valid if Hierarchical Namespace is enabled for the account. When creating a file or directory and the
@@ -325,7 +338,7 @@ type PathClientDeleteOptions struct {
 	RequestID *string
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 }
 
@@ -381,7 +394,7 @@ type PathClientFlushDataOptions struct {
 	RetainUncommittedData *bool
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 }
 
@@ -397,7 +410,7 @@ type PathClientGetPropertiesOptions struct {
 	RequestID *string
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 
 	// Optional. Valid only when Hierarchical Namespace is enabled for the account. If "true", the user identity values returned
@@ -420,7 +433,7 @@ type PathClientLeaseOptions struct {
 	RequestID *string
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 
 	// The lease break period duration is optional to break a lease, and specifies the break period of the lease in seconds. The
@@ -438,7 +451,7 @@ type PathClientReadOptions struct {
 	RequestID *string
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 
 	// Optional. When this header is set to "true" and specified together with the Range header, the service returns the MD5 hash
@@ -473,7 +486,7 @@ type PathClientSetAccessControlOptions struct {
 	RequestID *string
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 }
 
@@ -507,7 +520,7 @@ type PathClientSetAccessControlRecursiveOptions struct {
 	RequestID *string
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 }
 
@@ -521,7 +534,7 @@ type PathClientSetExpiryOptions struct {
 	RequestID *string
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 }
 
@@ -532,7 +545,7 @@ type PathClientUndeleteOptions struct {
 	RequestID *string
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 
 	// Only for hierarchical namespace enabled accounts. Optional. The path of the soft deleted blob to undelete.
@@ -619,8 +632,15 @@ type PathClientUpdateOptions struct {
 	// operation.
 	RetainUncommittedData *bool
 
+	// Required if the request body is a structured message. Specifies the message schema version and properties.
+	StructuredBodyType *string
+
+	// Required if the request body is a structured message. Specifies the length of the blob/file content inside the message
+	// body. Will always be smaller than Content-Length.
+	StructuredContentLength *int64
+
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 }
 
@@ -670,7 +690,7 @@ type ServiceClientListFileSystemsOptions struct {
 	RequestID *string
 
 	// The timeout parameter is expressed in seconds. For more information, see Setting Timeouts for Blob Service Operations.
-	// [https://docs.microsoft.com/en-us/rest/api/storageservices/fileservices/setting-timeouts-for-blob-service-operations]
+	// [https://learn.microsoft.com/rest/api/storageservices/setting-timeouts-for-blob-service-operations]
 	Timeout *int32
 }
 

@@ -5,7 +5,9 @@ package azcosmos
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
@@ -21,6 +23,21 @@ type ContainerClient struct {
 	database *DatabaseClient
 	// The resource link
 	link string
+}
+
+// ItemIdentity represents the identity of an item (its id plus its partition key value).
+// This is useful for bulk/read-many style operations that need to address multiple
+// items under (potentially) different partition key values.
+//
+// ID must match the 'id' property of the stored item. PartitionKey is the value (or
+// composite/hierarchical set of values) the item was written with. For hierarchical
+// partition keys create the PartitionKey with NewPartitionKey* helpers (e.g.
+// NewPartitionKeyString, NewPartitionKeyInt, or NewPartitionKeyArray) following the
+// order defined in the container. For hierarchical partition keys, all of the
+// levels must be provided.
+type ItemIdentity struct {
+	ID           string       // Item id
+	PartitionKey PartitionKey // Partition key value for the item
 }
 
 func newContainer(id string, database *DatabaseClient) (*ContainerClient, error) {
@@ -432,6 +449,62 @@ func (c *ContainerClient) ReadItem(
 	return response, err
 }
 
+// ReadManyItems reads multiple items in a Cosmos container. Note that the items returned in the response are unordered.
+// ctx - The context for the request.
+// itemIdentities - The identities of the items to read.
+// o - Options for the operation.
+func (c *ContainerClient) ReadManyItems(
+	ctx context.Context,
+	itemIdentities []ItemIdentity,
+	o *ReadManyOptions) (ReadManyItemsResponse, error) {
+	// if empty list of items, return empty list
+	if len(itemIdentities) == 0 {
+		return ReadManyItemsResponse{}, nil
+	}
+
+	// Validate all item IDs are non-empty
+	for i := range itemIdentities {
+		if itemIdentities[i].ID == "" {
+			return ReadManyItemsResponse{}, errors.New("item identity at index " + fmt.Sprint(i) + " has an empty ID")
+		}
+	}
+
+	readManyOptions := &ReadManyOptions{}
+	if o != nil {
+		originalOptions := *o
+		readManyOptions = &originalOptions
+	}
+
+	operationContext := pipelineRequestOptions{
+		resourceType:    resourceTypeDocument,
+		resourceAddress: c.link,
+	}
+
+	return c.executeReadManyWithQueries(ctx, itemIdentities, readManyOptions, operationContext)
+}
+
+// GetFeedRanges retrieves all the feed ranges for which changefeed could be fetched.
+// ctx - The context for the request.
+func (c *ContainerClient) GetFeedRanges(ctx context.Context) ([]FeedRange, error) {
+	// Get the partition key ranges from the container
+	response, err := c.getPartitionKeyRanges(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert partition key ranges to feed ranges
+	feedRanges := make([]FeedRange, 0, len(response.PartitionKeyRanges))
+	for _, pkr := range response.PartitionKeyRanges {
+		feedRange := FeedRange{
+			MinInclusive: pkr.MinInclusive,
+			MaxExclusive: pkr.MaxExclusive,
+		}
+		feedRanges = append(feedRanges, feedRange)
+	}
+
+	return feedRanges, nil
+}
+
 // DeleteItem deletes an item in a Cosmos container.
 // ctx - The context for the request.
 // partitionKey - The partition key for the item.
@@ -543,8 +616,24 @@ func (c *ContainerClient) NewCrossPartitionQueryItemsPager(query string, o *Quer
 
 // NewQueryItemsPager executes a single partition query in a Cosmos container.
 // query - The SQL query to execute.
-// partitionKey - The partition key to scope the query on.
+// partitionKey - The partition key to scope the query on. See below for more information on cross partition queries.
 // o - Options for the operation.
+//
+// You can specify an empty list of partition keys by passing `NewPartitionKey()` to the `partitionKey` parameter, to indicate that the query WHERE clauses will specify which partitions to query.
+//
+// Limited cross partition queries ARE possible with the Go SDK.
+// If you specify partition keys in the `partitionKey` parameter, you must specify ALL partition keys that the container has (in the case of hierarchical partitioning).
+//
+// If the query itself contains WHERE clauses that filter down to a single partition, the query will be executed on that partition.
+// If the query does not filter down to a single partition (i.e. it does not filter on partition key at all, or filters on only some of the partition keys a container defines), the query will be executed as a cross partition query.
+// The Azure Cosmos DB Gateway API, used by the Go SDK, can only perform a LIMITED set of cross-partition queries.
+// Specifically, the gateway can only perform simple projections and filtering on cross partition queries.
+// See https://learn.microsoft.com/rest/api/cosmos-db/querying-cosmosdb-resources-using-the-rest-api#queries-that-cannot-be-served-by-gateway for more details.
+//
+// When performing a cross-partition query, the Gateway may return pages of inconsistent size, or even empty pages (while still having a non-nil continuation token).
+// Ensure you fully iterate the pager, even if you receive empty pages, to ensure you get all results.
+//
+// If you provide a query that the gateway cannot execute, it will return a BadRequest error.
 func (c *ContainerClient) NewQueryItemsPager(query string, partitionKey PartitionKey, o *QueryOptions) *runtime.Pager[QueryItemsResponse] {
 	correlatedActivityId, _ := uuid.New()
 	h := headerOptionsOverride{
@@ -562,6 +651,13 @@ func (c *ContainerClient) NewQueryItemsPager(query string, partitionKey Partitio
 		resourceType:          resourceTypeDocument,
 		resourceAddress:       c.link,
 		headerOptionsOverride: &h,
+	}
+
+	// For now, we short-cut straight to the preview query engine if provided.
+	// In the future, we could consider running the normal pipeline until the Gateway fails due to an unsupported query and then switch over.
+	// However, this logic could also just be handled in the query engine itself.
+	if queryOptions.QueryEngine != nil {
+		return c.executeQueryWithEngine(queryOptions.QueryEngine, query, queryOptions, operationContext)
 	}
 
 	path, _ := generatePathForNameBased(resourceTypeDocument, operationContext.resourceAddress, true)
@@ -726,6 +822,104 @@ func (c *ContainerClient) ExecuteTransactionalBatch(ctx context.Context, b Trans
 	return response, err
 }
 
+// GetChangeFeed retrieves a single page of the change feed using the provided options.
+// ctx - The context for the request.
+// options - Options for the operation
+// If options.FeedRange is set, it will retrieve the change feed for the specific range.
+// If options.Continuation contains a composite continuation token, it will extract the feed range from it.
+func (c *ContainerClient) GetChangeFeed(
+	ctx context.Context,
+	options *ChangeFeedOptions,
+) (ChangeFeedResponse, error) {
+	if options == nil {
+		options = &ChangeFeedOptions{}
+	}
+
+	if options.FeedRange == nil && options.Continuation != nil && *options.Continuation != "" {
+		var compositeToken compositeContinuationToken
+		if err := json.Unmarshal([]byte(*options.Continuation), &compositeToken); err == nil {
+			if len(compositeToken.Continuation) > 0 {
+				options.FeedRange = &FeedRange{
+					MinInclusive: compositeToken.Continuation[0].MinInclusive,
+					MaxExclusive: compositeToken.Continuation[0].MaxExclusive,
+				}
+			}
+		}
+	}
+
+	if options.FeedRange != nil {
+		return c.getChangeFeedForEPKRange(ctx, options.FeedRange, options)
+	} else {
+		return ChangeFeedResponse{}, fmt.Errorf("GetChangeFeed requires a FeedRange to be set in the options, or a continuation token that contains a composite continuation token")
+	}
+}
+
+func (c *ContainerClient) getChangeFeedForEPKRange(
+	ctx context.Context,
+	feedRange *FeedRange,
+	options *ChangeFeedOptions,
+) (ChangeFeedResponse, error) {
+	var err error
+	spanName, err := c.getSpanForItems(operationTypeRead)
+	if err != nil {
+		return ChangeFeedResponse{}, err
+	}
+	ctx, endSpan := runtime.StartSpan(ctx, spanName.name, c.database.client.internal.Tracer(), &spanName.options)
+	defer func() { endSpan(err) }()
+
+	if options == nil {
+		options = &ChangeFeedOptions{}
+	}
+
+	pkrResp, err := c.getPartitionKeyRanges(ctx, nil)
+	if err != nil {
+		return ChangeFeedResponse{}, err
+	}
+	partitionKeyRanges := pkrResp.PartitionKeyRanges
+
+	var addHeaders func(*policy.Request)
+	headersPtr := options.toHeaders(partitionKeyRanges)
+	if headersPtr != nil {
+		headers := *headersPtr
+		addHeaders = func(r *policy.Request) {
+			for k, v := range headers {
+				r.Raw().Header.Set(k, v)
+			}
+		}
+	}
+
+	operationContext := pipelineRequestOptions{
+		resourceType:    resourceTypeDocument,
+		resourceAddress: c.link,
+	}
+
+	path, err := generatePathForNameBased(resourceTypeDocument, operationContext.resourceAddress, true)
+	if err != nil {
+		return ChangeFeedResponse{}, err
+	}
+
+	azResponse, err := c.database.client.sendGetRequest(
+		path,
+		ctx,
+		operationContext,
+		nil,
+		addHeaders,
+	)
+	if err != nil {
+		return ChangeFeedResponse{}, err
+	}
+
+	response, err := newChangeFeedResponse(azResponse)
+	if err != nil {
+		return response, err
+	}
+
+	response.FeedRange = feedRange
+	response.PopulateCompositeContinuationToken()
+
+	return response, nil
+}
+
 func (c *ContainerClient) getRID(ctx context.Context) (string, error) {
 	containerResponse, err := c.Read(ctx, nil)
 	if err != nil {
@@ -741,4 +935,40 @@ func (c *ContainerClient) getSpanForContainer(operationType operationType, resou
 
 func (c *ContainerClient) getSpanForItems(operationType operationType) (span, error) {
 	return getSpanNameForItems(c.database.client.accountEndpointUrl(), operationType, c.database.id, c.id)
+}
+
+func (c *ContainerClient) getPartitionKeyRanges(ctx context.Context, o *partitionKeyRangeOptions) (partitionKeyRangeResponse, error) {
+	spanName, err := c.getSpanForContainer(operationTypeRead, resourceTypePartitionKeyRange, c.id)
+	if err != nil {
+		return partitionKeyRangeResponse{}, err
+	}
+	ctx, endSpan := runtime.StartSpan(ctx, spanName.name, c.database.client.internal.Tracer(), &spanName.options)
+	defer func() { endSpan(err) }()
+
+	operationContext := pipelineRequestOptions{
+		resourceType:    resourceTypePartitionKeyRange,
+		resourceAddress: c.link,
+	}
+
+	if o == nil {
+		o = &partitionKeyRangeOptions{}
+	}
+
+	path, err := generatePathForNameBased(resourceTypePartitionKeyRange, operationContext.resourceAddress, true)
+	if err != nil {
+		return partitionKeyRangeResponse{}, err
+	}
+
+	azResponse, err := c.database.client.sendGetRequest(
+		path,
+		ctx,
+		operationContext,
+		o,
+		nil)
+
+	response, err := newPartitionKeyRangeResponse(azResponse)
+	if err != nil {
+		return partitionKeyRangeResponse{}, err
+	}
+	return response, nil
 }

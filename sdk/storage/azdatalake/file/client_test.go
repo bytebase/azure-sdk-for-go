@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
@@ -14,6 +11,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/log"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/lease"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azdatalake/internal/path"
 	"hash/crc64"
@@ -48,12 +46,13 @@ var proposedLeaseIDs = []*string{to.Ptr("c820a799-76d7-4ee2-6e15-546f19325c2c"),
 func Test(t *testing.T) {
 	recordMode := recording.GetRecordMode()
 	t.Logf("Running datalake Tests in %s mode\n", recordMode)
-	if recordMode == recording.LiveMode {
+	switch recordMode {
+	case recording.LiveMode:
 		suite.Run(t, &RecordedTestSuite{})
 		suite.Run(t, &UnrecordedTestSuite{})
-	} else if recordMode == recording.PlaybackMode {
+	case recording.PlaybackMode:
 		suite.Run(t, &RecordedTestSuite{})
-	} else if recordMode == recording.RecordingMode {
+	case recording.RecordingMode:
 		suite.Run(t, &RecordedTestSuite{})
 	}
 }
@@ -91,12 +90,6 @@ type UnrecordedTestSuite struct {
 	suite.Suite
 }
 
-//	func validateFileDeleted(_require *require.Assertions, fileClient *file.Client) {
-//		_, err := fileClient.GetAccessControl(context.Background(), nil)
-//		_require.Error(err)
-//
-//		testcommon.ValidateErrorCode(_require, err, datalakeerror.PathNotFound)
-//	}
 type userAgentTest struct{}
 
 func (u userAgentTest) Do(req *policy.Request) (*http.Response, error) {
@@ -596,6 +589,7 @@ func (s *RecordedTestSuite) TestCreateFileWithExpiryRelativeToNow() {
 
 	time.Sleep(time.Second * 10)
 	_, err = fClient.GetProperties(context.Background(), nil)
+	_require.Error(err)
 	testcommon.ValidateErrorCode(_require, err, datalakeerror.PathNotFound)
 }
 
@@ -1011,6 +1005,7 @@ func (s *RecordedTestSuite) TestFileSetExpiry() {
 
 	_, err = fClient.GetProperties(context.Background(), nil)
 	testcommon.ValidateErrorCode(_require, err, datalakeerror.PathNotFound)
+	_require.Error(err)
 }
 
 func (s *UnrecordedTestSuite) TestFileSetExpiryTypeAbsoluteTime() {
@@ -5627,4 +5622,91 @@ func (s *RecordedTestSuite) TestFileClientDefaultAudience() {
 
 	_, err = fClient.GetProperties(context.Background(), nil)
 	_require.NoError(err)
+}
+
+func (s *UnrecordedTestSuite) TestCreateSASUsingUserDelegationKeyFile() {
+	_require := require.New(s.T())
+	accountName, _ := testcommon.GetGenericAccountInfo(testcommon.TestAccountDefault)
+	_require.Greater(len(accountName), 0)
+
+	cred, err := testcommon.GetGenericTokenCredential()
+	_require.NoError(err)
+
+	svcClient, err := service.NewClient("https://"+accountName+".blob.core.windows.net/", cred, nil)
+	_require.NoError(err)
+
+	udSAS, err := testcommon.GetUserDelegationSAS(svcClient, "testfile", sas.FilePermissions{Read: true, Create: true, Write: true, List: true})
+	_require.NoError(err)
+
+	serviceClient, err := file.NewClientWithNoCredential(svcClient.DFSURL()+"/testfile?"+udSAS, nil)
+	_require.NoError(err)
+	_require.NotNil(serviceClient)
+
+}
+
+func (s *UnrecordedTestSuite) TestGetPropertiesWithInvalidSAS() {
+	_require := require.New(s.T())
+	testName := s.T().Name()
+
+	filesystemName := testcommon.GenerateFileSystemName(testName)
+	fsClient, err := testcommon.GetFileSystemClient(filesystemName, s.T(), testcommon.TestAccountDatalake, nil)
+	_require.NoError(err)
+	defer testcommon.DeleteFileSystem(context.Background(), _require, fsClient)
+
+	_, err = fsClient.Create(context.Background(), nil)
+	_require.NoError(err)
+
+	fileName := testcommon.GenerateFileName(testName)
+	fClient, err := testcommon.GetFileClient(filesystemName, fileName, s.T(), testcommon.TestAccountDatalake, nil)
+	_require.NoError(err)
+
+	resp, err := fClient.Create(context.Background(), nil)
+	_require.NoError(err)
+	_require.NotNil(resp)
+
+	// Generate an invalid SAS token (e.g., wrong permissions)
+	expiry := time.Now().Add(time.Hour)
+	permissions := sas.FilePermissions{
+		Read:   false,
+		Add:    false,
+		Write:  false,
+		Create: false,
+		Delete: false,
+	}
+	sasURL, err := fClient.GetSASURL(permissions, expiry, nil)
+	_require.Error(err)
+
+	fClientWithInvalidSAS, _ := file.NewClientWithNoCredential(sasURL, nil)
+
+	// Attempt to call GetProperties (Issue# https://github.com/Azure/azure-sdk-for-go/issues/23912)
+	_, err = fClientWithInvalidSAS.GetProperties(context.Background(), nil)
+	_require.Error(err)
+}
+
+// TestFileClientAuthenticationFailure tests that GetProperties and DownloadStream handle authentication failures gracefully
+func (s *UnrecordedTestSuite) TestFileClientAuthenticationFailure() {
+	_require := require.New(s.T())
+	tenantID := "invalid-tenant-id"
+	clientID := "invalid-client-id"
+	clientSecret := "invalid-secret"
+
+	cred, err := azidentity.NewClientSecretCredential(tenantID, clientID, clientSecret, nil)
+	_require.NoError(err)
+	accountName, _ := testcommon.GetGenericAccountInfo(testcommon.TestAccountDatalake)
+	url := "https://" + accountName + ".dfs.core.windows.net/"
+
+	srvClient, err := service.NewClient(url, cred, nil)
+	_require.NoError(err)
+
+	fsClient := srvClient.NewFileSystemClient("testfs")
+	fileClient := fsClient.NewFileClient("testfile")
+
+	_, err = fileClient.GetProperties(context.Background(), nil)
+	_require.Error(err, "Expected authentication error")
+	_require.Contains(err.Error(), "ClientSecretCredential")
+
+	// Test DownloadStream - should return an error, not panic
+	_, err = fileClient.DownloadStream(context.Background(), nil)
+	_require.Error(err, "Expected authentication error")
+	_require.Contains(err.Error(), "ClientSecretCredential")
 }

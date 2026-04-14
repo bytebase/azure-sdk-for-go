@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
@@ -96,3 +93,12 @@ type ListHandlesResponse = generated.FileClientListHandlesResponse
 
 // ListHandlesSegmentResponse - An enumeration of handles.
 type ListHandlesSegmentResponse = generated.ListHandlesResponse
+
+// CreateHardLinkResponse contains response from method Client.CreateHardLink
+type CreateHardLinkResponse = generated.FileClientCreateHardLinkResponse
+
+// CreateSymbolicLinkResponse contains response from method Client.CreateSymbolicLink
+type CreateSymbolicLinkResponse = generated.FileClientCreateSymbolicLinkResponse
+
+// GetSymbolicLinkResponse contains response from method Client.GetSymbolicLink
+type GetSymbolicLinkResponse = generated.FileClientGetSymbolicLinkResponse

@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
@@ -27,12 +24,10 @@ var liveManagedIdentity = struct {
 	clientID   string
 	objectID   string
 	resourceID string
-	imds       bool
 }{
 	clientID:   os.Getenv("IDENTITY_VM_USER_ASSIGNED_MI_CLIENT_ID"),
 	objectID:   os.Getenv("IDENTITY_VM_USER_ASSIGNED_MI_OBJECT_ID"),
 	resourceID: os.Getenv("IDENTITY_VM_USER_ASSIGNED_MI_RESOURCE_ID"),
-	imds:       os.Getenv("IDENTITY_IMDS_AVAILABLE") != "",
 }
 
 var liveSP = struct {
@@ -166,6 +161,10 @@ func run(m *testing.M) int {
 		if err != nil {
 			panic(err)
 		}
+		err = recording.AddBodyKeySanitizer("expires_on", fmt.Sprint(time.Now().Add(time.Hour).Unix()), "", nil)
+		if err != nil {
+			panic(err)
+		}
 	case recording.RecordingMode:
 		// replace path variables with fake values to simplify matching (the real values aren't secret)
 		pathVars := map[string]string{
@@ -244,6 +243,9 @@ func initRecording(t *testing.T) (policy.ClientOptions, func()) {
 		t.Fatal(err)
 	}
 	clientOpts := policy.ClientOptions{Transport: transport, PerCallPolicies: []policy.Policy{newRecordingPolicy(t)}}
+	if recording.GetRecordMode() == recording.PlaybackMode {
+		clientOpts.Retry.MaxRetries = -1
+	}
 	return clientOpts, func() {
 		err := recording.Stop(t, nil)
 		if err != nil {

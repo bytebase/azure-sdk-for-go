@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
@@ -10,6 +7,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -128,7 +126,7 @@ func init() {
 		log.Printf("AZURE_RECORD_MODE was not set, defaulting to playback")
 		recordMode = PlaybackMode
 	}
-	if !(recordMode == RecordingMode || recordMode == PlaybackMode || recordMode == LiveMode) {
+	if recordMode != RecordingMode && recordMode != PlaybackMode && recordMode != LiveMode {
 		log.Panicf("AZURE_RECORD_MODE was not understood, options are %s, %s, or %s Received: %v.\n", RecordingMode, PlaybackMode, LiveMode, recordMode)
 	}
 
@@ -174,8 +172,9 @@ func init() {
 }
 
 var (
-	recordMode string
-	rootCAs    *x509.CertPool
+	defaultPort = os.Getpid()%10000 + 20000
+	recordMode  string
+	rootCAs     *x509.CertPool
 )
 
 const (
@@ -230,7 +229,8 @@ var client = http.Client{
 }
 
 type RecordingOptions struct {
-	UseHTTPS        bool
+	UseHTTPS bool
+	// ProxyPort is the port the test proxy is listening on. Defaults to the port used by [StartTestProxy].
 	ProxyPort       int
 	GroupForReplace string
 	Variables       map[string]interface{}
@@ -244,7 +244,7 @@ type RecordingOptions struct {
 func defaultOptions() *RecordingOptions {
 	return &RecordingOptions{
 		UseHTTPS:  true,
-		ProxyPort: os.Getpid()%10000 + 20000,
+		ProxyPort: defaultPort,
 	}
 }
 
@@ -271,14 +271,11 @@ func (r RecordingOptions) ReplaceAuthority(t *testing.T, rawReq *http.Request) *
 }
 
 func (r RecordingOptions) host() string {
-	if r.ProxyPort != 0 {
-		return fmt.Sprintf("localhost:%d", r.ProxyPort)
+	port := r.ProxyPort
+	if port == 0 {
+		port = defaultPort
 	}
-
-	if r.UseHTTPS {
-		return "localhost:5001"
-	}
-	return "localhost:5000"
+	return fmt.Sprintf("localhost:%d", port)
 }
 
 func (r RecordingOptions) scheme() string {
@@ -416,15 +413,19 @@ func Start(t *testing.T, pathToRecordings string, options *RecordingOptions) err
 	} else if resp, err = requestStart(url, testId, absAssetLocation); err != nil {
 		return err
 	} else if resp.StatusCode >= 400 {
+		_ = resp.Body.Close()
 		if resp, err = requestStart(url, testId, relAssetLocation); err != nil {
 			return err
 		}
 	}
 
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
 	recId := resp.Header.Get(IDHeader)
 	if recId == "" {
 		b, err := io.ReadAll(resp.Body)
-		defer resp.Body.Close()
 		if err != nil {
 			return err
 		}
@@ -432,9 +433,8 @@ func Start(t *testing.T, pathToRecordings string, options *RecordingOptions) err
 	}
 
 	// Unmarshal any variables returned by the proxy
-	var m map[string]interface{}
+	var m map[string]any
 	body, err := io.ReadAll(resp.Body)
-	defer resp.Body.Close()
 	if err != nil {
 		return err
 	}
@@ -507,15 +507,18 @@ func Stop(t *testing.T, options *RecordingOptions) error {
 	if err != nil {
 		return err
 	}
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
 	if resp.StatusCode != 200 {
 		b, err := io.ReadAll(resp.Body)
-		defer resp.Body.Close()
 		if err == nil {
 			return fmt.Errorf("proxy did not stop the recording properly: %s", string(b))
 		}
 		return fmt.Errorf("proxy did not stop the recording properly: %s", err.Error())
 	}
-	_ = resp.Body.Close()
 	return err
 }
 
@@ -663,7 +666,14 @@ func (c RecordingHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	// poll for status and/or fetch the final result.
 	resp.Request.URL.Scheme = origScheme
 	resp.Request.URL.Host = origHost
-	return resp, nil
+	// if the response is a recording mismatch error from the proxy, return
+	// its message as a simple error that prints legibly in test output
+	if er := resp.Header.Get("x-request-mismatch-error"); er != "" {
+		if msg, e := base64.StdEncoding.DecodeString(er); e == nil {
+			err = errors.New(string(msg))
+		}
+	}
+	return resp, err
 }
 
 // NewRecordingHTTPClient returns a type that implements `azcore.Transporter`. This will automatically route tests on the `Do` call.

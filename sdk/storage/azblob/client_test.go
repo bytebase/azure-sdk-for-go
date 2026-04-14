@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
@@ -46,12 +43,13 @@ type AZBlobUnrecordedTestsSuite struct {
 func Test(t *testing.T) {
 	recordMode := recording.GetRecordMode()
 	t.Logf("Running azblob Tests in %s mode\n", recordMode)
-	if recordMode == recording.LiveMode {
+	switch recordMode {
+	case recording.LiveMode:
 		suite.Run(t, &AZBlobRecordedTestsSuite{})
 		suite.Run(t, &AZBlobUnrecordedTestsSuite{})
-	} else if recordMode == recording.PlaybackMode {
+	case recording.PlaybackMode:
 		suite.Run(t, &AZBlobRecordedTestsSuite{})
-	} else if recordMode == recording.RecordingMode {
+	case recording.RecordingMode:
 		suite.Run(t, &AZBlobRecordedTestsSuite{})
 	}
 }
@@ -578,7 +576,7 @@ func performUploadAndDownloadBufferTest(t *testing.T, _require *require.Assertio
 
 	// Download the blob to a buffer
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Minute)
-	_, err = client.DownloadBuffer(ctx,
+	n, err := client.DownloadBuffer(ctx,
 		containerName,
 		blobName,
 		destBuffer, &blob.DownloadBufferOptions{
@@ -606,7 +604,13 @@ func performUploadAndDownloadBufferTest(t *testing.T, _require *require.Assertio
 		if downloadCount == 0 {
 			_require.EqualValues(destBuffer, bytesToUpload[downloadOffset:])
 		} else {
-			_require.EqualValues(destBuffer, bytesToUpload[downloadOffset:downloadOffset+downloadCount])
+			_require.EqualValues(destBuffer[:int(n)], bytesToUpload[downloadOffset:downloadOffset+int(n)])
+			if downloadCount > blobSize {
+				_require.EqualValues(blobSize-downloadOffset, n)
+			} else {
+				_require.EqualValues(downloadCount, n)
+			}
+
 		}
 	}
 }
@@ -864,4 +868,26 @@ func (s *AZBlobRecordedTestsSuite) TestAzBlobClientCustomAudience() {
 		_require.NotNil(resp.ContainerItems[0].Name)
 		_require.Equal(*resp.ContainerItems[0].Name, containerName)
 	}
+}
+
+func (s *AZBlobRecordedTestsSuite) TestDownloadBufferWithLessData() {
+	blobSize := 15
+	blockSize := 1024
+	concurrency := 3
+	downloadOffset := 0
+	downloadCount := 100
+	_require := require.New(s.T())
+	testName := s.T().Name()
+	performUploadAndDownloadBufferTest(s.T(), _require, testName, blobSize, blockSize, concurrency, downloadOffset, downloadCount)
+}
+
+func (s *AZBlobRecordedTestsSuite) TestDownloadBufferWithLargeData() {
+	blobSize := 10 * 1024 * 1024
+	blockSize := 1024 * 1024
+	concurrency := 3
+	downloadOffset := 0
+	downloadCount := 7 * 1024 * 1024
+	_require := require.New(s.T())
+	testName := s.T().Name()
+	performUploadAndDownloadBufferTest(s.T(), _require, testName, blobSize, blockSize, concurrency, downloadOffset, downloadCount)
 }

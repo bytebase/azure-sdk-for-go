@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
@@ -40,12 +37,13 @@ import (
 func Test(t *testing.T) {
 	recordMode := recording.GetRecordMode()
 	t.Logf("Running pageblob Tests in %s mode\n", recordMode)
-	if recordMode == recording.LiveMode {
-		suite.Run(t, &PageBlobRecordedTestsSuite{})
+	switch recordMode {
+	case recording.LiveMode:
 		suite.Run(t, &PageBlobUnrecordedTestsSuite{})
-	} else if recordMode == recording.PlaybackMode {
 		suite.Run(t, &PageBlobRecordedTestsSuite{})
-	} else if recordMode == recording.RecordingMode {
+	case recording.PlaybackMode:
+		suite.Run(t, &PageBlobRecordedTestsSuite{})
+	case recording.RecordingMode:
 		suite.Run(t, &PageBlobRecordedTestsSuite{})
 	}
 }
@@ -232,7 +230,7 @@ func (s *PageBlobRecordedTestsSuite) TestPutGetPages() {
 		_require.NotNil(pageListResp.Date)
 		_require.Equal(pageListResp.Date.IsZero(), false)
 		_require.NotNil(pageListResp.PageList)
-		pageRangeResp := pageListResp.PageList.PageRange
+		pageRangeResp := pageListResp.PageRange
 		_require.Len(pageRangeResp, 1)
 		rawStart, rawEnd := rawPageRange((pageRangeResp)[0])
 		_require.Equal(rawStart, offset)
@@ -517,6 +515,61 @@ func (s *PageBlobUnrecordedTestsSuite) TestUploadPagesFromURLWithCRC64Negative()
 	_require.Error(err) // TODO: UploadPagesFromURL should fail, but is currently not working due to service issue.
 }
 
+func (s *PageBlobUnrecordedTestsSuite) TestUploadPagesFromURLWithRequestIntentHeader() {
+	_require := require.New(s.T())
+	testName := s.T().Name()
+	svcClient, err := testcommon.GetServiceClient(s.T(), testcommon.TestAccountDefault, nil)
+	_require.NoError(err)
+
+	containerName := testcommon.GenerateContainerName(testName)
+	containerClient := testcommon.CreateNewContainer(context.Background(), _require, containerName, svcClient)
+	defer testcommon.DeleteContainer(context.Background(), _require, containerClient)
+
+	contentSize := 4 * 1024 * 1024 // 4MB
+	r, sourceData := testcommon.GetDataAndReader(testName, contentSize)
+	srcBlob := createNewPageBlobWithSize(context.Background(), _require, "srcblob"+testName, containerClient, int64(contentSize))
+	destBlob := createNewPageBlobWithSize(context.Background(), _require, "dstblob"+testName, containerClient, int64(contentSize))
+
+	// Prepare source pbClient for copy.
+	offset, _, count := int64(0), int64(contentSize-1), int64(contentSize)
+	requestIntent := blob.FileRequestIntentTypeBackup
+
+	_, err = srcBlob.UploadPages(context.Background(), streaming.NopCloser(r), blob.HTTPRange{Offset: offset, Count: count}, nil)
+	_require.NoError(err)
+
+	// Get source pbClient URL with SAS for UploadPagesFromURL.
+	keyCredential, err := testcommon.GetGenericSharedKeyCredential(testcommon.TestAccountDefault)
+	_require.NoError(err)
+
+	srcBlobParts, _ := blob.ParseURL(srcBlob.URL())
+
+	srcBlobParts.SAS, err = sas.BlobSignatureValues{
+		Protocol:      sas.ProtocolHTTPS,                      // Users MUST use HTTPS (not HTTP)
+		ExpiryTime:    time.Now().UTC().Add(15 * time.Minute), // 15 minutes before expiration
+		ContainerName: srcBlobParts.ContainerName,
+		BlobName:      srcBlobParts.BlobName,
+		Permissions:   to.Ptr(sas.BlobPermissions{Read: true}).String(),
+	}.SignWithSharedKey(keyCredential)
+	_require.NoError(err)
+
+	srcBlobURLWithSAS := srcBlobParts.String()
+
+	// Upload page from URL with MD5.
+	uploadPagesFromURLOptions := pageblob.UploadPagesFromURLOptions{
+		FileRequestIntent: &requestIntent,
+	}
+	pResp1, err := destBlob.UploadPagesFromURL(context.Background(), srcBlobURLWithSAS, 0, 0, int64(contentSize), &uploadPagesFromURLOptions)
+	_require.NoError(err)
+	_require.NotNil(pResp1)
+
+	// Download blob.
+	downloadResp, err := destBlob.DownloadStream(context.Background(), nil)
+	_require.NoError(err)
+	destData, err := io.ReadAll(downloadResp.Body)
+	_require.NoError(err)
+	_require.EqualValues(destData, sourceData)
+}
+
 func (s *PageBlobUnrecordedTestsSuite) TestClearDiffPages() {
 	_require := require.New(s.T())
 	testName := s.T().Name()
@@ -553,7 +606,7 @@ func (s *PageBlobUnrecordedTestsSuite) TestClearDiffPages() {
 		pageListResp, err := pager.NextPage(context.Background())
 		_require.NoError(err)
 
-		pageRangeResp := pageListResp.PageList.PageRange
+		pageRangeResp := pageListResp.PageRange
 		_require.NotNil(pageRangeResp)
 		_require.Len(pageRangeResp, 1)
 		rawStart, rawEnd := rawPageRange((pageRangeResp)[0])
@@ -577,7 +630,7 @@ func (s *PageBlobUnrecordedTestsSuite) TestClearDiffPages() {
 	for pager.More() {
 		pageListResp, err := pager.NextPage(context.Background())
 		_require.NoError(err)
-		pageRangeResp := pageListResp.PageList.PageRange
+		pageRangeResp := pageListResp.PageRange
 		_require.Len(pageRangeResp, 0)
 		if err != nil {
 			break
@@ -2478,7 +2531,7 @@ func (s *PageBlobRecordedTestsSuite) TestBlobGetPageRangesNonContiguousRanges() 
 	for pager.More() {
 		resp, err := pager.NextPage(context.Background())
 		_require.NoError(err)
-		pageListResp := resp.PageList.PageRange
+		pageListResp := resp.PageRange
 		_require.NotNil(pageListResp)
 		_require.Len(pageListResp, 2)
 
@@ -3563,6 +3616,10 @@ func (s *PageBlobRecordedTestsSuite) TestBlobSetSequenceNumberIfMatchTrue() {
 }
 
 func (s *PageBlobRecordedTestsSuite) TestPageSetImmutabilityPolicy() {
+	if recording.GetRecordMode() != recording.PlaybackMode {
+		s.T().Skip("This test only runs in playback mode")
+	}
+
 	_require := require.New(s.T())
 	testName := s.T().Name()
 	svcClient, err := testcommon.GetServiceClient(s.T(), testcommon.TestAccountImmutable, nil)
@@ -3601,6 +3658,10 @@ func (s *PageBlobRecordedTestsSuite) TestPageSetImmutabilityPolicy() {
 }
 
 func (s *PageBlobRecordedTestsSuite) TestPageDeleteImmutabilityPolicy() {
+	if recording.GetRecordMode() != recording.PlaybackMode {
+		s.T().Skip("This test only runs in playback mode")
+	}
+
 	_require := require.New(s.T())
 	testName := s.T().Name()
 	svcClient, err := testcommon.GetServiceClient(s.T(), testcommon.TestAccountImmutable, nil)
@@ -3634,6 +3695,10 @@ func (s *PageBlobRecordedTestsSuite) TestPageDeleteImmutabilityPolicy() {
 }
 
 func (s *PageBlobRecordedTestsSuite) TestPageSetLegalHold() {
+	if recording.GetRecordMode() != recording.PlaybackMode {
+		s.T().Skip("This test only runs in playback mode")
+	}
+
 	_require := require.New(s.T())
 	testName := s.T().Name()
 	svcClient, err := testcommon.GetServiceClient(s.T(), testcommon.TestAccountImmutable, nil)
@@ -4042,7 +4107,7 @@ func (s *PageBlobUnrecordedTestsSuite) TestPageBlockWithCPK() {
 	for pager.More() {
 		resp, err := pager.NextPage(context.Background())
 		_require.NoError(err)
-		pageListResp := resp.PageList.PageRange
+		pageListResp := resp.PageRange
 		start, end := int64(0), int64(contentSize-1)
 		rawStart, rawEnd := rawPageRange(pageListResp[0])
 		_require.Equal(rawStart, start)
@@ -4105,7 +4170,7 @@ func (s *PageBlobUnrecordedTestsSuite) TestPageBlockWithCPKScope() {
 	for pager.More() {
 		resp, err := pager.NextPage(context.Background())
 		_require.NoError(err)
-		pageListResp := resp.PageList.PageRange
+		pageListResp := resp.PageRange
 		start, end := int64(0), int64(contentSize-1)
 		rawStart, rawEnd := rawPageRange(pageListResp[0])
 		_require.Equal(rawStart, start)
@@ -4196,8 +4261,8 @@ func (s *PageBlobUnrecordedTestsSuite) TestCreatePageBlobWithTags() {
 	where := "\"azure\"='blob'"
 	lResp, err := svcClient.FilterBlobs(context.Background(), where, nil)
 	_require.NoError(err)
-	_require.Equal(*lResp.FilterBlobSegment.Blobs[0].Tags.BlobTagSet[0].Key, "azure")
-	_require.Equal(*lResp.FilterBlobSegment.Blobs[0].Tags.BlobTagSet[0].Value, "blob")
+	_require.Equal(*lResp.Blobs[0].Tags.BlobTagSet[0].Key, "azure")
+	_require.Equal(*lResp.Blobs[0].Tags.BlobTagSet[0].Value, "blob")
 }
 
 func (s *PageBlobUnrecordedTestsSuite) TestPageBlobSetBlobTagForSnapshot() {
@@ -4236,8 +4301,8 @@ func (s *PageBlobUnrecordedTestsSuite) TestPageBlobSetBlobTagForSnapshot() {
 	where := "\"GO \"='.Net'"
 	lResp, err := svcClient.FilterBlobs(context.Background(), where, nil)
 	_require.NoError(err)
-	_require.Equal(*lResp.FilterBlobSegment.Blobs[0].Tags.BlobTagSet[0].Key, "GO ")
-	_require.Equal(*lResp.FilterBlobSegment.Blobs[0].Tags.BlobTagSet[0].Value, ".Net")
+	_require.Equal(*lResp.Blobs[0].Tags.BlobTagSet[0].Key, "GO ")
+	_require.Equal(*lResp.Blobs[0].Tags.BlobTagSet[0].Value, ".Net")
 }
 
 func (s *PageBlobRecordedTestsSuite) TestCreatePageBlobReturnsVID() {

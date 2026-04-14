@@ -1,16 +1,70 @@
 # Release History
 
-## 1.3.0 (Unreleased)
+## 2.0.3 (Unreleased)
+
+### Bugs Fixed
+
+- Fixed missing `consumers.Delete()` call when checkpoint initialization fails, which could block future consumer creation for the affected partition. (#24983)
+
+## 2.0.2 (2026-03-10)
+
+### Bugs Fixed
+
+- Added immediate retry for AMQP link detach errors, avoiding unnecessary backoff delays when errors originate from earlier detaches. (PR#25630)
+
+## 2.0.1 (2025-10-08)
+
+### Bugs Fixed
+
+- Fixed outdated documentation that incorrectly stated the library is in beta.
+
+## 2.0.0 (2025-06-10)
+
+First release of `github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2`.
+
+### Breaking Changes
+
+This new major release is compatible with azeventhubs v1, with one difference - Checkpoint.Offset and ReceivedEventData.Offset's type have been changed to a string (from an integer).
+This change does NOT affect any stored checkpoints. Most customers will be unaffected by this change and can safely upgrade.
+
+### Features Added
+
+- Support for Event Hubs Geo-Replication (PR#24477)
+
+## 2.0.0-beta.1 (2025-05-06)
+
+### Features Added
+
+- Support for Event Hubs Geo-Replication (PR#24477)
+
+### Breaking Changes
+
+- This package is compatible with azeventhubs v1, with one difference - Checkpoint.Offset and ReceivedEventData.Offset's type have been changed to a string (from an integer).
+  This change does NOT affect any stored checkpoints. Most customers will be unaffected by this change and can safely upgrade.
+
+## 1.3.2 (2025-04-08)
+
+### Bugs Fixed
+
+- Processor now only lists checkpoints when it needs to start a new partition client, avoiding wasted calls to the checkpoint store. (PR#24383)
+
+## 1.3.1 (2025-03-11)
+
+### Bugs Fixed
+
+- Removed a memory leak that could occur when the ConsumerClient was unable to open a partition. (PR#24198)
+
+## 1.3.0 (2025-02-11)
 
 ### Features Added
 
 - ProducerClient and ConsumerClient allow the endpoint to be overridden with CustomEndpoint, allowing the use of TCP proxies with AMQP.
 
-### Breaking Changes
+## 1.3.0-beta.1 (2025-01-13)
 
-### Bugs Fixed
+### Features Added
 
-### Other Changes
+- ProducerClient and ConsumerClient allow the endpoint to be overridden with CustomEndpoint, allowing the use of TCP proxies with AMQP.
 
 ## 1.2.3 (2024-10-14)
 

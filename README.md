@@ -14,14 +14,15 @@ This repository is for active development of the Azure SDK for Go. For consumers
 
 To get started with a module, see the README.md file located in the module's project folder.  You can find these module folders grouped by service in the `/sdk` directory.
 
-> [!NOTE]
-> Go **1.18** or later is required. You could download and install the latest version of Go from [here](https://go.dev/doc/install). It will replace the existing Go on your machine. If you want to install multiple Go versions on the same machine, you could refer this [doc](https://go.dev/doc/manage-install).
+<a id="go-version-support"></a>
+> [!IMPORTANT]
+> Our libraries are compatible with the two most recent major Go releases, the same [policy](https://go.dev/doc/devel/release#policy) the Go programming language follows.
 
-> [!NOTE]
+> [!IMPORTANT]
 > Projects are highly encouraged to use the latest version of Go. This ensures your product has all the latest security fixes and is included in [Go's support lifecycle](https://go.dev/doc/devel/release).
 
 > [!WARNING]
-> The [root azure-sdk-for-go Go module](https://godoc.org/github.com/Azure/azure-sdk-for-go) which contains subpaths of `/services/**/mgmt/**` (also known as track 1) is [deprecated and no longer recieving support](https://azure.github.io/azure-sdk/releases/deprecated/go.html). See [the migration guide](https://github.com/Azure/azure-sdk-for-go/blob/main/documentation/MIGRATION_GUIDE.md) to learn how to migrate to the current version.
+> The [root azure-sdk-for-go Go module](https://godoc.org/github.com/Azure/azure-sdk-for-go) which contains subpaths of `/services/**/mgmt/**` (also known as track 1) is [deprecated and no longer receiving support](https://azure.github.io/azure-sdk/releases/deprecated/go.html). See [the migration guide](https://github.com/Azure/azure-sdk-for-go/blob/main/documentation/development/ARM/MIGRATION_GUIDE.md) to learn how to migrate to the current version.
 
 ## Packages available
 
@@ -67,6 +68,55 @@ Security issues and bugs should be reported privately, via email, to the Microso
 * File an issue via [Github Issues](https://github.com/Azure/azure-sdk-for-go/issues)
 * Check [previous questions](https://stackoverflow.com/questions/tagged/azure+go) or ask new ones on StackOverflow using `azure` and `go` tags.
 
+## Data Collection
+The software may collect information about you and your use of the software and send it to Microsoft. Microsoft may use this information to provide services and improve our products and services. You may turn off the telemetry as described below. You can learn more about data collection and use in the help documentation and Microsoft’s [privacy statement](https://go.microsoft.com/fwlink/?LinkID=824704). For more information on the data collected by the Azure SDK, please visit the [Telemetry Guidelines](https://azure.github.io/azure-sdk/general_azurecore.html#telemetry-policy) page.
+
+### Telemetry Configuration
+Telemetry collection is on by default.
+
+To opt out, you can disable telemetry at client and credential construction. Set `Disabled` to true in `ClientOptions.Telemetry`. This will disable telemetry for all methods in the client. Do this for every new client and credential created.
+
+The example below uses the `azblob` module. In your code, you can replace `azblob` with the package you are using.
+
+```go
+package main
+
+import (
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+)
+
+func main() {
+	// set http client options
+	clientOpts := policy.ClientOptions{
+		Telemetry: policy.TelemetryOptions{
+			Disabled: true,
+		},
+	}
+	// set identity client options
+	credOpts := azidentity.ManagedIdentityCredentialOptions{
+		ClientOptions: clientOpts,
+	}
+	// set service client options
+	azblobOpts := azblob.ClientOptions{
+		ClientOptions: clientOpts,
+	}
+
+	// authenticate with Microsoft Entra ID
+	cred, err := azidentity.NewManagedIdentityCredential(&credOpts)
+	// TODO: handle error
+
+	// create a client for the specified storage account
+	client, err := azblob.NewClient(account, cred, &azblobOpts)
+	// TODO: handle error
+  	// TODO: do something with the client
+}
+```
+> [!NOTE]
+> Please note that `AzureDeveloperCLICredential` and `AzureCLICredential` do not include `ClientOptions.Telemetry`. Therefore, it is unnecessary to set options in these credentials.
+
+
 ## Community
 
 * Chat with us in the **[#Azure SDK
@@ -77,6 +127,8 @@ Slack](https://gophers.slack.com/). Sign up
 ## Contribute
 
 See [CONTRIBUTING.md](https://github.com/Azure/azure-sdk-for-go/blob/main/CONTRIBUTING.md).
+
+For AI agents and automated tools, see [AGENTS.md](https://github.com/Azure/azure-sdk-for-go/blob/main/AGENTS.md) for guidance on repository workflows, automation boundaries, and best practices.
 
 This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/). For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
 

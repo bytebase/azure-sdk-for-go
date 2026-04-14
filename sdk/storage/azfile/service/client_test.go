@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
@@ -30,12 +27,13 @@ import (
 func Test(t *testing.T) {
 	recordMode := recording.GetRecordMode()
 	t.Logf("Running service Tests in %s mode\n", recordMode)
-	if recordMode == recording.LiveMode {
+	switch recordMode {
+	case recording.LiveMode:
 		suite.Run(t, &ServiceRecordedTestsSuite{})
 		suite.Run(t, &ServiceUnrecordedTestsSuite{})
-	} else if recordMode == recording.PlaybackMode {
+	case recording.PlaybackMode:
 		suite.Run(t, &ServiceRecordedTestsSuite{})
-	} else if recordMode == recording.RecordingMode {
+	case recording.RecordingMode:
 		suite.Run(t, &ServiceRecordedTestsSuite{})
 	}
 }
@@ -560,7 +558,7 @@ func (s *ServiceRecordedTestsSuite) TestServiceCreateDeleteRestoreShare() {
 	_require.Equal(sharesCnt, 1)
 }
 
-func (s *ServiceRecordedTestsSuite) TestServiceCreateDeleteDirOAuth() {
+func (s *ServiceUnrecordedTestsSuite) TestServiceCreateDeleteDirOAuth() {
 	_require := require.New(s.T())
 	testName := s.T().Name()
 
@@ -593,6 +591,45 @@ func (s *ServiceRecordedTestsSuite) TestServiceCreateDeleteDirOAuth() {
 
 	_, err = dirClient.Delete(context.Background(), nil)
 	_require.NoError(err)
+}
+
+func (s *ServiceUnrecordedTestsSuite) TestUserDelegationSASWithDelegatedUserObjectId() {
+	_require := require.New(s.T())
+	testName := s.T().Name()
+
+	// Construct a fake UDK for local signing
+	now := time.Now().UTC().Add(-1 * time.Minute)
+	expiry := now.Add(30 * time.Minute)
+	serviceCode := "f"
+	version := sas.Version
+	oid := "00000000-0000-0000-0000-000000000000"
+	tid := "11111111-1111-1111-1111-111111111111"
+	val := to.Ptr("AAAAAAAAAAAAAAAAAAAAAA==")
+
+	udk := exported.UserDelegationKey{
+		SignedStart:   &now,
+		SignedExpiry:  &expiry,
+		SignedService: &serviceCode,
+		SignedVersion: &version,
+		SignedOID:     &oid,
+		SignedTID:     &tid,
+		Value:         val,
+	}
+	udc := exported.NewUserDelegationCredential("testaccount", udk)
+
+	shareName := testcommon.GenerateShareName(testName)
+	sv := sas.SignatureValues{
+		Protocol:                    sas.ProtocolHTTPS,
+		StartTime:                   now,
+		ExpiryTime:                  expiry,
+		Permissions:                 (&sas.SharePermissions{Read: true, List: true}).String(),
+		ShareName:                   shareName,
+		SignedDelegatedUserObjectID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+	}
+	qp, err := sv.SignWithUserDelegation(udc)
+	_require.NoError(err)
+	enc := qp.Encode()
+	_require.Contains(enc, "sduoid=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
 }
 
 func (s *ServiceUnrecordedTestsSuite) TestAccountSASEncryptionScope() {
@@ -727,7 +764,7 @@ func (s *ServiceRecordedTestsSuite) TestServiceClientWithNilSharedKey() {
 	_require.Error(err)
 }
 
-func (s *ServiceRecordedTestsSuite) TestServiceClientCustomAudience() {
+func (s *ServiceUnrecordedTestsSuite) TestServiceClientCustomAudience() {
 	_require := require.New(s.T())
 	testName := s.T().Name()
 
@@ -760,4 +797,28 @@ func (s *ServiceRecordedTestsSuite) TestServiceClientCustomAudience() {
 
 	_, err = dirClientAudience.GetProperties(context.Background(), nil)
 	_require.NoError(err)
+}
+
+func (s *ServiceRecordedTestsSuite) TestAccountPropertiesWithNFS() {
+	_require := require.New(s.T())
+	testName := s.T().Name()
+	cred, err := testcommon.GetGenericSharedKeyCredential(testcommon.TestAccountPremium)
+	_require.NoError(err)
+
+	shareName := testcommon.GenerateShareName(testName)
+	shareURL := "https://" + cred.AccountName() + ".file.core.windows.net/" + shareName
+
+	options := &share.ClientOptions{}
+	testcommon.SetClientOptions(s.T(), &options.ClientOptions)
+	premiumShareClient, err := share.NewClientWithSharedKeyCredential(shareURL, cred, options)
+	_require.NoError(err)
+
+	_, err = premiumShareClient.Create(context.Background(), &share.CreateOptions{
+		EnabledProtocols: to.Ptr("NFS"),
+	})
+	_require.NoError(err)
+
+	resp, err := premiumShareClient.GetProperties(context.Background(), nil)
+	_require.NoError(err)
+	_require.Equal(resp.EnabledProtocols, to.Ptr("NFS"))
 }

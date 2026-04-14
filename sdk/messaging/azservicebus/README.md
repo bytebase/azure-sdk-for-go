@@ -15,7 +15,7 @@ If you used the pre-release `azure-service-bus-go` module, see the [Migration gu
 ## Getting started
 
 ### Prerequisites
-- Go, version 1.18 or higher - [Install Go](https://go.dev/doc/install)
+- [Supported](https://aka.ms/azsdk/go/supported-versions) version of Go - [Install Go](https://go.dev/doc/install)
 - Azure subscription - [Create a free account](https://azure.microsoft.com/free/)
 - Service Bus namespace - [Create a namespace](https://learn.microsoft.com/azure/service-bus-messaging/service-bus-create-namespace-portal)
 - A Service Bus queue, topic, or subscription - See the Azure Service Bus documentation to create an entity in your Service Bus namespace. For example, create a Service Bus queue using the [Azure portal](https://learn.microsoft.com/azure/service-bus-messaging/service-bus-quickstart-portal), the [Azure CLI](https://learn.microsoft.com/azure/service-bus-messaging/service-bus-quickstart-cli), or other tools.
@@ -269,6 +269,8 @@ To see some example code for receiving messages using the `Receiver`, see the [R
 
 ## Troubleshooting
 
+For detailed troubleshooting information, refer to the [Service Bus Troubleshooting Guide][servicebus_troubleshooting].
+
 ### Logging
 
 This module uses the classification-based logging implementation in `azcore`. To enable console logging for all SDK modules, set the environment variable `AZURE_SDK_GO_LOGGING` to `all`. 
@@ -310,16 +312,16 @@ See the [examples][godoc_examples] for using this library to send and receive me
 
 If you'd like to contribute to this library, please read the [contributing guide](https://github.com/Azure/azure-sdk-for-go/blob/main/CONTRIBUTING.md) to learn more about how to build and test the code.
 
-![Impressions](https://azure-sdk-impressions.azurewebsites.net/api/impressions/azure-sdk-for-go%2Fsdk%2Fmessaging%2Fazservicebus%2FREADME.png)
+
 
 [new_issue]: https://github.com/Azure/azure-sdk-for-go/issues/new
 [azure_identity_pkg]: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/azidentity
 [default_azure_credential]: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/azidentity#NewDefaultAzureCredential
-[queue_concept]: https://docs.microsoft.com/azure/service-bus-messaging/service-bus-messaging-overview#queues
-[topic_concept]: https://docs.microsoft.com/azure/service-bus-messaging/service-bus-messaging-overview#topics
-[subscription_concept]: https://docs.microsoft.com/azure/service-bus-messaging/service-bus-queues-topics-subscriptions#topics-and-subscriptions
-[service_bus_overview]: https://docs.microsoft.com/azure/service-bus-messaging/service-bus-messaging-overview
-[msdoc_settling]: https://docs.microsoft.com/azure/service-bus-messaging/message-transfers-locks-settlement#settling-receive-operations
+[queue_concept]: https://learn.microsoft.com/azure/service-bus-messaging/service-bus-messaging-overview#queues
+[topic_concept]: https://learn.microsoft.com/azure/service-bus-messaging/service-bus-messaging-overview#topics
+[subscription_concept]: https://learn.microsoft.com/azure/service-bus-messaging/service-bus-queues-topics-subscriptions#topics-and-subscriptions
+[service_bus_overview]: https://learn.microsoft.com/azure/service-bus-messaging/service-bus-messaging-overview
+[msdoc_settling]: https://learn.microsoft.com/azure/service-bus-messaging/message-transfers-locks-settlement#settling-receive-operations
 [source]: https://github.com/Azure/azure-sdk-for-go/tree/main/sdk/messaging/azservicebus
 [godoc]: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus#section-documentation
 [godoc_examples]: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus#pkg-examples
@@ -331,3 +333,4 @@ If you'd like to contribute to this library, please read the [contributing guide
 [godoc_newsender]: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/#Client.NewSender
 [godoc_newreceiver_queue]: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/#Client.NewReceiverForQueue
 [godoc_newreceiver_subscription]: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/#Client.NewReceiverForSubscription
+[servicebus_troubleshooting]: https://github.com/Azure/azure-sdk-for-go/blob/main/sdk/messaging/azservicebus/TROUBLESHOOTING.md

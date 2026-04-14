@@ -18,11 +18,11 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/test/credential"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/uuid"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/test"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2/internal/test"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub"
+	"github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
-	"nhooyr.io/websocket"
 )
 
 func TestConsumerClient_UsingWebSockets(t *testing.T) {
@@ -507,7 +507,7 @@ func TestConsumerClient_Detaches(t *testing.T) {
 	producerClient, err := azeventhubs.NewProducerClient(testParams.EventHubNamespace, testParams.EventHubName, testParams.Cred, nil)
 	require.NoError(t, err)
 
-	defer producerClient.Close(context.Background())
+	defer func() { _ = producerClient.Close(context.Background()) }()
 
 	sendEvent := func(msg string) error {
 		batch, err := producerClient.NewEventDataBatch(context.Background(), nil)
@@ -845,6 +845,24 @@ func TestConsumerClient_InstanceID(t *testing.T) {
 	_, err = failedPartitionClient.ReceiveEvents(context.Background(), 1, nil)
 
 	require.Contains(t, err.Error(), fmt.Sprintf("Description: Receiver '%s' with a higher epoch '1' already exists. Receiver 'LosesBecauseOfLowOwnerLevel' with epoch 0 cannot be created. Make sure you are creating receiver with increasing epoch value to ensure connectivity, or ensure all old epoch receivers are closed or disconnected", instanceID))
+}
+
+func TestConsumerClientUsingCustomEndpoint(t *testing.T) {
+	testParams := test.GetConnectionParamsForTest(t)
+
+	consumerClient, err := azeventhubs.NewConsumerClient(testParams.EventHubNamespace, testParams.EventHubName, azeventhubs.DefaultConsumerGroup, testParams.Cred, &azeventhubs.ConsumerClientOptions{
+		CustomEndpoint: "127.0.0.1",
+		RetryOptions: azeventhubs.RetryOptions{
+			MaxRetries: -1,
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = consumerClient.GetEventHubProperties(context.Background(), nil)
+
+	// NOTE, this is a little silly, but we just want to prove
+	// that CustomEndpoint does get used as the actual TCP endpoint we connect to.
+	require.Contains(t, err.Error(), "127.0.0.1:5671")
 }
 
 // mustSendEventsToAllPartitions sends the event given in evt to each partition in the

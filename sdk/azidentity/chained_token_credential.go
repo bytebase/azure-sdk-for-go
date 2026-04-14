@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
@@ -48,6 +45,9 @@ func NewChainedTokenCredential(sources []azcore.TokenCredential, options *Chaine
 	for _, source := range sources {
 		if source == nil { // cannot have a nil credential in the chain or else the application will panic when GetToken() is called on nil
 			return nil, errors.New("sources cannot contain nil")
+		}
+		if mc, ok := source.(*ManagedIdentityCredential); ok {
+			mc.mic.chained = true
 		}
 	}
 	cp := make([]azcore.TokenCredential, len(sources))

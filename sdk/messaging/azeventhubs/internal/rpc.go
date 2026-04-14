@@ -13,7 +13,7 @@ import (
 
 	azlog "github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/uuid"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/amqpwrap"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2/internal/amqpwrap"
 	"github.com/Azure/go-amqp"
 )
 
@@ -24,7 +24,7 @@ const (
 	defaultReceiverCredits = 1000
 )
 
-var RPCLinkClosedErr = errors.New("rpc link closed")
+var ErrRPCLinkClosed = errors.New("rpc link closed")
 
 type (
 	// rpcLink is the bidirectional communication structure used for CBS negotiation
@@ -79,9 +79,10 @@ func (e RPCError) RPCCode() int {
 }
 
 type RPCLinkArgs struct {
-	Client   amqpwrap.AMQPClient
-	Address  string
-	LogEvent azlog.Event
+	Client              amqpwrap.AMQPClient
+	Address             string
+	LogEvent            azlog.Event
+	DesiredCapabilities []string
 }
 
 // NewRPCLink will build a new request response link
@@ -115,7 +116,9 @@ func NewRPCLink(ctx context.Context, args RPCLinkArgs) (amqpwrap.RPCLink, error)
 		ctx,
 		args.Address,
 		"",
-		nil,
+		&amqp.SenderOptions{
+			DesiredCapabilities: args.DesiredCapabilities,
+		},
 	)
 	if err != nil {
 		_ = session.Close(ctx)
@@ -129,6 +132,8 @@ func NewRPCLink(ctx context.Context, args RPCLinkArgs) (amqpwrap.RPCLink, error)
 		// set our receiver link into the "receive and delete" mode - messages arrive pre-settled.
 		SettlementMode:            amqp.ReceiverSettleModeFirst.Ptr(),
 		RequestedSenderSettleMode: amqp.SenderSettleModeSettled.Ptr(),
+
+		DesiredCapabilities: args.DesiredCapabilities,
 	}
 
 	if link.sessionID != nil {
@@ -173,7 +178,7 @@ func (l *rpcLink) responseRouter() {
 			// we need to bail out, broadcasting to all affected callers/consumers.
 			if GetRecoveryKind(err) != RecoveryKindNone {
 				if IsCancelError(err) {
-					err = RPCLinkClosedErr
+					err = ErrRPCLinkClosed
 				} else {
 					azlog.Writef(l.logEvent, "Error in RPCLink, stopping response router: %s", err.Error())
 				}

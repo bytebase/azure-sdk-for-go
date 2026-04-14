@@ -1,15 +1,29 @@
 # Release History
 
-## 1.2.0 (Unreleased)
+## 1.3.1-beta.1 (Unreleased)
 
 ### Features Added
-* Added API Version support. Users can now change the default API Version by setting ClientOptions.APIVersion
 
 ### Breaking Changes
 
 ### Bugs Fixed
 
 ### Other Changes
+
+## 1.3.0 (2025-07-17)
+
+### Other Changes
+* Upgraded dependencies
+
+## 1.3.0-beta.1 (2025-05-06)
+
+### Features Added
+* Add fakes support
+
+## 1.2.0 (2025-01-15)
+
+### Features Added
+* Added API Version support. Users can now change the default API Version by setting ClientOptions.APIVersion
 
 ## 1.1.0 (2024-06-12)
 

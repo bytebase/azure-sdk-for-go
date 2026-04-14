@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/log"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/exported"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2/internal/exported"
 )
 
 type RetryFnArgs struct {
@@ -39,7 +39,7 @@ func Retry(ctx context.Context, eventName log.Event, prefix func() string, o exp
 		panic("isFatalFn is nil, errors would panic")
 	}
 
-	var ro exported.RetryOptions = o
+	ro := o
 	setDefaults(&ro)
 
 	var err error

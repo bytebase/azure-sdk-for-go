@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
@@ -8,6 +5,7 @@ package datalakeerror
 
 import (
 	"errors"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -65,10 +63,12 @@ const (
 	AuthorizationResourceTypeMismatch                 StorageErrorCode = "AuthorizationResourceTypeMismatch"
 	AuthorizationServiceMismatch                      StorageErrorCode = "AuthorizationServiceMismatch"
 	AuthorizationSourceIPMismatch                     StorageErrorCode = "AuthorizationSourceIPMismatch"
+	BlobNotFound                                      StorageErrorCode = "BlobNotFound"
 	PathAlreadyExists                                 StorageErrorCode = "PathAlreadyExists"
 	PathArchived                                      StorageErrorCode = "PathArchived"
 	PathBeingRehydrated                               StorageErrorCode = "PathBeingRehydrated"
 	PathImmutableDueToPolicy                          StorageErrorCode = "PathImmutableDueToPolicy"
+	PathIsTooDeep                                     StorageErrorCode = "PathIsTooDeep"
 	PathNotArchived                                   StorageErrorCode = "PathNotArchived"
 	PathNotFound                                      StorageErrorCode = "PathNotFound"
 	PathOverwritten                                   StorageErrorCode = "PathOverwritten"
@@ -170,7 +170,10 @@ const (
 	UnsupportedXMLNode                                StorageErrorCode = "UnsupportedXmlNode"
 )
 
+//nolint:staticcheck // ST1012: Renaming these errors would be a breaking change, so suppressing linter warning.
 var (
+	// BlobNotFound - Error is returned when resource is not found.
+
 	// MissingSharedKeyCredential - Error is returned when SAS URL is being created without SharedKeyCredential.
 	MissingSharedKeyCredential = bloberror.MissingSharedKeyCredential
 

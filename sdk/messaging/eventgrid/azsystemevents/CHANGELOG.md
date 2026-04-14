@@ -1,17 +1,80 @@
 # Release History
 
-## 0.6.0 (Unreleased)
+## 1.0.1-beta.1 (Unreleased)
 
 ### Features Added
 
-
 ### Breaking Changes
-
-- Azure Media services has been retired - all related system events have been removed. See the [retirement announcement](https://azure.microsoft.com/updates?id=retirement-notice-azure-media-services-is-being-retired-on-30-june-2024) for more details.
 
 ### Bugs Fixed
 
 ### Other Changes
+
+## 1.0.0 (2025-06-26)
+
+First stable release of the azsystemevents package.
+
+### Breaking Changes
+
+Some types have been renamed:
+- ACSCallEndedByProperties.Type -> Kind
+- ACSRecordingFileStatusUpdatedEventData.RecordingChannelKind -> RecordingChannelType
+- APIManagementExpiredGatewayTokenProperties.ExpiredAtUTC -> ExpiresOn
+- APIManagementGatewayTokenExpiredEventData.GatewayInfo -> Gateway
+- APIManagementGatewayTokenExpiredEventData.TokenInfo -> Token
+- APIManagementGatewayTokenNearExpiryEventData.GatewayInfo -> Gateway
+- APIManagementGatewayTokenNearExpiryEventData.TokenInfo -> Token
+- APIManagementNearExpiryGatewayTokenProperties.ExpiredAtUTC -> ExpiresOn
+- RecordingChannelKind -> ACSRecordingChannelType
+- RecordingContentType -> ACSRecordingContentType 
+- RecordingFormatType -> ACSRecordingFormatType
+
+Some types have been removed:
+- ACSCallParticipantEventProperties
+
+## 0.7.0 (2025-05-14)
+
+### Features Added
+
+- New system events have been added:
+  - ACSCallEndedEventData
+  - ACSCallParticipantAddedEventData
+  - ACSCallParticipantRemovedEventData
+  - ACSCallStartedEventData
+  - ACSChatAzureBotCommandReceivedInThreadEventData
+  - ACSChatTypingIndicatorReceivedInThreadEventData
+  - APIManagementCircuitBreakerClosedEventData
+  - APIManagementCircuitBreakerOpenedEventData
+  - APIManagementGatewayTokenExpiredEventData
+  - APIManagementGatewayTokenNearExpiryEventData
+  - EdgeSolutionVersionPublishedEventData
+
+### Breaking Changes
+
+- ACSCallParticipantProperties.Role has changed from a `*string` to a `*ACSCallParticipantRoleKind`.
+
+## 0.6.1 (2025-02-20)
+
+### Features Added
+
+The following fields have been added:
+- ACSMessageReceivedEventData.MessageType
+- ACSMessageReceivedEventData.MessageID
+- ACSMessageReceivedEventData.Reaction
+
+## 0.6.0 (2025-01-21)
+
+### Features Added
+
+The following fields have been added:
+- ACSEmailDeliveryReportReceivedEventData.InternetMessageID
+- ACSEmailDeliveryReportStatusDetails.RecipientMailServerHostName
+- ACSSmsReceivedEventData.SegmentCount
+
+### Breaking Changes
+
+- Azure Media services has been retired - all related system events have been removed. See the [retirement announcement](https://azure.microsoft.com/updates?id=retirement-notice-azure-media-services-is-being-retired-on-30-june-2024) for more details.
+- The following types have been renamed to correct incorrect casing: ACSSMSDeliveryAttemptProperties, ACSSMSDeliveryReportReceivedEventData, ACSSMSReceivedEventData, TypeACSSMSDeliveryReportReceived and TypeACSSMSReceived.
 
 ## 0.5.0 (2024-11-19)
 

@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
@@ -16,6 +13,9 @@ import (
 )
 
 func TestUsernamePasswordCredential_Live(t *testing.T) {
+	if recording.GetRecordMode() != recording.PlaybackMode {
+		t.Skip("the test tenant requires MFA")
+	}
 	for _, disabledID := range []bool{true, false} {
 		name := "default options"
 		if disabledID {

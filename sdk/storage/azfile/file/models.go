@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
@@ -28,6 +25,9 @@ func NewSharedKeyCredential(accountName, accountKey string) (*SharedKeyCredentia
 
 // SMBProperties contains the optional parameters regarding the SMB/NTFS properties for a file.
 type SMBProperties = exported.SMBProperties
+
+// NFSProperties contains the optional parameters regarding the NFS properties for a file.
+type NFSProperties = exported.NFSProperties
 
 // NTFSFileAttributes for Files and Directories.
 // The subset of attributes is listed at: https://learn.microsoft.com/en-us/rest/api/storageservices/set-file-properties#file-system-attributes.
@@ -78,6 +78,8 @@ type DestinationLeaseAccessConditions = generated.DestinationLeaseAccessConditio
 type CreateOptions struct {
 	// The default value is 'None' for Attributes and 'now' for CreationTime and LastWriteTime fields in file.SMBProperties.
 	SMBProperties *SMBProperties
+	// NFS only. The default value is 'now' for CreationTime and LastWriteTime fields in file.NFSProperties.
+	NFSProperties *NFSProperties
 	// The default value is 'inherit' for Permission field in file.Permissions.
 	Permissions           *Permissions
 	FilePermissionFormat  *PermissionFormat
@@ -85,38 +87,64 @@ type CreateOptions struct {
 	LeaseAccessConditions *LeaseAccessConditions
 	// A name-value pair to associate with a file storage object.
 	Metadata map[string]*string
+	// SMB only, default value is New. Restore will apply changes without further modification.
+	FilePropertySemantics *PropertySemantics
+	OptionalBody          io.ReadSeekCloser
+	ContentLength         *int64
+	ContentMD5            []byte
 }
 
 func (o *CreateOptions) format() (*generated.FileClientCreateOptions, *generated.ShareFileHTTPHeaders, *LeaseAccessConditions) {
 	if o == nil {
-		return &generated.FileClientCreateOptions{
-			FileAttributes:    to.Ptr(shared.FileAttributesNone),
-			FileCreationTime:  to.Ptr(shared.DefaultCurrentTimeString),
-			FileLastWriteTime: to.Ptr(shared.DefaultCurrentTimeString),
-			FilePermission:    to.Ptr(shared.DefaultFilePermissionString),
-		}, nil, nil
+		return nil, nil, nil
 	}
 
-	fileAttributes, fileCreationTime, fileLastWriteTime, fileChangeTime := exported.FormatSMBProperties(o.SMBProperties, to.Ptr(shared.FileAttributesNone), to.Ptr(shared.DefaultCurrentTimeString), false)
+	var createOptions *generated.FileClientCreateOptions
 
-	permission, permissionKey := exported.FormatPermissions(o.Permissions, to.Ptr(shared.DefaultFilePermissionString))
+	if o.NFSProperties != nil {
+		fileCreationTime, fileLastWriteTime := exported.FormatNFSProperties(o.NFSProperties, false)
 
-	createOptions := &generated.FileClientCreateOptions{
-		FileAttributes:    fileAttributes,
-		FileChangeTime:    fileChangeTime,
-		FileCreationTime:  fileCreationTime,
-		FileLastWriteTime: fileLastWriteTime,
-		FilePermission:    permission,
-		FilePermissionKey: permissionKey,
-		Metadata:          o.Metadata,
+		createOptions = &generated.FileClientCreateOptions{
+			FileCreationTime:  fileCreationTime,
+			FileLastWriteTime: fileLastWriteTime,
+			FileMode:          o.NFSProperties.FileMode,
+			Group:             o.NFSProperties.Group,
+			Owner:             o.NFSProperties.Owner,
+			Metadata:          o.Metadata,
+		}
+
+	} else {
+		fileAttributes, fileCreationTime, fileLastWriteTime, fileChangeTime := exported.FormatSMBProperties(o.SMBProperties, false)
+		permission, permissionKey := exported.FormatPermissions(o.Permissions)
+
+		createOptions = &generated.FileClientCreateOptions{
+			FileAttributes:    fileAttributes,
+			FileChangeTime:    fileChangeTime,
+			FileCreationTime:  fileCreationTime,
+			FileLastWriteTime: fileLastWriteTime,
+			FilePermission:    permission,
+			FilePermissionKey: permissionKey,
+			Metadata:          o.Metadata,
+			Optionalbody:      o.OptionalBody,
+		}
+		// Refer the documentation for details - https://learn.microsoft.com/en-us/rest/api/storageservices/create-file#smb-only-request-headers
+		if permissionKey != nil {
+			createOptions.FilePermissionKey = permissionKey
+		} else if permission != nil {
+			createOptions.FilePermission = permission
+			if o.FilePermissionFormat != nil {
+				createOptions.FilePermissionFormat = to.Ptr(*o.FilePermissionFormat)
+			} else {
+				createOptions.FilePermissionFormat = to.Ptr(FilePermissionFormatSddl) // optional, default
+			}
+		}
+		if o.FilePropertySemantics != nil {
+			createOptions.FilePropertySemantics = o.FilePropertySemantics
+		}
+		if len(o.ContentMD5) > 0 {
+			createOptions.ContentMD5 = o.ContentMD5
+		}
 	}
-
-	if permissionKey != nil && *permissionKey != shared.DefaultFilePermissionString {
-		createOptions.FilePermissionFormat = to.Ptr(PermissionFormat(shared.DefaultFilePermissionFormat))
-	} else if o.FilePermissionFormat != nil {
-		createOptions.FilePermissionFormat = to.Ptr(PermissionFormat(*o.FilePermissionFormat))
-	}
-
 	return createOptions, o.HTTPHeaders, o.LeaseAccessConditions
 }
 
@@ -172,9 +200,8 @@ func (o *RenameOptions) format() (*generated.FileClientRenameOptions, *generated
 		return nil, nil, nil, nil, nil
 	}
 
-	fileAttributes, fileCreationTime, fileLastWriteTime, fileChangeTime := exported.FormatSMBProperties(o.SMBProperties, nil, nil, false)
-
-	permission, permissionKey := exported.FormatPermissions(o.Permissions, nil)
+	fileAttributes, fileCreationTime, fileLastWriteTime, fileChangeTime := exported.FormatSMBProperties(o.SMBProperties, false)
+	permission, permissionKey := exported.FormatPermissions(o.Permissions)
 
 	renameOpts := &generated.FileClientRenameOptions{
 		FilePermission:    permission,
@@ -233,6 +260,8 @@ type SetHTTPHeadersOptions struct {
 	FileContentLength *int64
 	// The default value is 'preserve' for Attributes, CreationTime and LastWriteTime fields in file.SMBProperties.
 	SMBProperties *SMBProperties
+	// NFS only. The default value is 'now' for CreationTime and LastWriteTime fields in file.NFSProperties.
+	NFSProperties *NFSProperties
 	// The default value is 'preserve' for Permission field in file.Permissions.
 	Permissions *Permissions
 	// Optional. Available for version 2023-06-01 and later. Specifies the format in which the permission is returned. Acceptable
@@ -249,32 +278,42 @@ type SetHTTPHeadersOptions struct {
 
 func (o *SetHTTPHeadersOptions) format() (*generated.FileClientSetHTTPHeadersOptions, *generated.ShareFileHTTPHeaders, *LeaseAccessConditions) {
 	if o == nil {
-		return &generated.FileClientSetHTTPHeadersOptions{
-			FileAttributes:    to.Ptr(shared.DefaultPreserveString),
-			FileCreationTime:  to.Ptr(shared.DefaultPreserveString),
-			FileLastWriteTime: to.Ptr(shared.DefaultPreserveString),
-			FilePermission:    to.Ptr(shared.DefaultPreserveString),
-		}, nil, nil
+		return nil, nil, nil
 	}
 
-	fileAttributes, fileCreationTime, fileLastWriteTime, fileChangeTime := exported.FormatSMBProperties(o.SMBProperties, to.Ptr(shared.DefaultPreserveString), to.Ptr(shared.DefaultPreserveString), false)
+	var opts *generated.FileClientSetHTTPHeadersOptions
 
-	permission, permissionKey := exported.FormatPermissions(o.Permissions, to.Ptr(shared.DefaultPreserveString))
+	if o.NFSProperties != nil {
+		fileCreationTime, fileLastWriteTime := exported.FormatNFSProperties(o.NFSProperties, false)
 
-	opts := &generated.FileClientSetHTTPHeadersOptions{
-		FileAttributes:    fileAttributes,
-		FileChangeTime:    fileChangeTime,
-		FileCreationTime:  fileCreationTime,
-		FileLastWriteTime: fileLastWriteTime,
-		FileContentLength: o.FileContentLength,
-		FilePermission:    permission,
-		FilePermissionKey: permissionKey,
-	}
+		opts = &generated.FileClientSetHTTPHeadersOptions{
+			FileCreationTime:  fileCreationTime,
+			FileLastWriteTime: fileLastWriteTime,
+			FileMode:          o.NFSProperties.FileMode,
+			Group:             o.NFSProperties.Group,
+			Owner:             o.NFSProperties.Owner,
+			FileContentLength: o.FileContentLength,
+		}
 
-	if permissionKey != nil && *permissionKey != shared.DefaultPreserveString {
-		opts.FilePermissionFormat = to.Ptr(PermissionFormat(shared.DefaultFilePermissionFormat))
-	} else if o.FilePermissionFormat != nil {
-		opts.FilePermissionFormat = to.Ptr(PermissionFormat(*o.FilePermissionFormat))
+	} else {
+		fileAttributes, fileCreationTime, fileLastWriteTime, fileChangeTime := exported.FormatSMBProperties(o.SMBProperties, false)
+		permission, permissionKey := exported.FormatPermissions(o.Permissions)
+
+		opts = &generated.FileClientSetHTTPHeadersOptions{
+			FileAttributes:    fileAttributes,
+			FileChangeTime:    fileChangeTime,
+			FileCreationTime:  fileCreationTime,
+			FileLastWriteTime: fileLastWriteTime,
+			FileContentLength: o.FileContentLength,
+			FilePermission:    permission,
+			FilePermissionKey: permissionKey,
+		}
+
+		if permissionKey != nil && *permissionKey != shared.DefaultPreserveString {
+			opts.FilePermissionFormat = to.Ptr(PermissionFormat(shared.DefaultFilePermissionFormat))
+		} else if o.FilePermissionFormat != nil {
+			opts.FilePermissionFormat = to.Ptr(PermissionFormat(*o.FilePermissionFormat))
+		}
 	}
 
 	return opts, o.HTTPHeaders, o.LeaseAccessConditions
@@ -299,6 +338,9 @@ func (o *SetMetadataOptions) format() (*generated.FileClientSetMetadataOptions, 
 	}, o.LeaseAccessConditions
 }
 
+// CopyFileNFSProperties contains the optional parameters regarding the NFS properties for a file.
+type CopyFileNFSProperties = exported.CopyFileNFSProperties
+
 // ---------------------------------------------------------------------------------------------------------------------
 
 // StartCopyFromURLOptions contains the optional parameters for the Client.StartCopyFromURL method.
@@ -308,6 +350,8 @@ type StartCopyFromURLOptions struct {
 	// required if x-ms-file-permission-copy-mode is specified as override
 	Permissions     *Permissions
 	CopyFileSMBInfo *CopyFileSMBInfo
+	// NFS only.
+	CopyFileNFSProperties *CopyFileNFSProperties
 	// LeaseAccessConditions contains optional parameters to access leased entity.
 	// Required if the destination file has an active lease.
 	LeaseAccessConditions *LeaseAccessConditions
@@ -317,19 +361,36 @@ func (o *StartCopyFromURLOptions) format() (*generated.FileClientStartCopyOption
 	if o == nil {
 		return nil, nil, nil
 	}
+	var opts *generated.FileClientStartCopyOptions
+	if o.CopyFileNFSProperties != nil {
+		// CreationTime and LastWriteTime are sent through CopyfileNFSProperties
+		// The format function will format them and return them as CopyFileSMBInfo parameters which will be retuned
+		optsCopyFileSMBInfo := exported.FormatCopyFileNFSProperties(o.CopyFileNFSProperties)
 
-	var permission, permissionKey *string
-	if o.Permissions != nil {
-		permission = o.Permissions.Permission
-		permissionKey = o.Permissions.PermissionKey
-	}
+		opts = &generated.FileClientStartCopyOptions{
+			Metadata:          o.Metadata,
+			FileMode:          o.CopyFileNFSProperties.FileMode,
+			Owner:             o.CopyFileNFSProperties.Owner,
+			Group:             o.CopyFileNFSProperties.Group,
+			FileModeCopyMode:  o.CopyFileNFSProperties.FileModeCopyMode,
+			FileOwnerCopyMode: o.CopyFileNFSProperties.FileOwnerCopyMode,
+		}
+		return opts, optsCopyFileSMBInfo, o.LeaseAccessConditions
 
-	opts := &generated.FileClientStartCopyOptions{
-		FilePermission:    permission,
-		FilePermissionKey: permissionKey,
-		Metadata:          o.Metadata,
+	} else {
+		var permission, permissionKey *string
+		if o.Permissions != nil {
+			permission = o.Permissions.Permission
+			permissionKey = o.Permissions.PermissionKey
+		}
+
+		opts = &generated.FileClientStartCopyOptions{
+			FilePermission:    permission,
+			FilePermissionKey: permissionKey,
+			Metadata:          o.Metadata,
+		}
+		return opts, o.CopyFileSMBInfo.format(), o.LeaseAccessConditions
 	}
-	return opts, o.CopyFileSMBInfo.format(), o.LeaseAccessConditions
 }
 
 // CopyFileSMBInfo contains a group of parameters for the FileClient.StartCopy method.
@@ -621,7 +682,9 @@ func (o *UploadRangeOptions) format(offset int64, body io.ReadSeekCloser) (strin
 	}
 
 	var leaseAccessConditions *LeaseAccessConditions
-	uploadRangeOptions := &generated.FileClientUploadRangeOptions{}
+	uploadRangeOptions := &generated.FileClientUploadRangeOptions{
+		Optionalbody: body,
+	}
 
 	if o != nil {
 		leaseAccessConditions = o.LeaseAccessConditions
@@ -784,6 +847,78 @@ func (o *ForceCloseHandlesOptions) format() *generated.FileClientForceCloseHandl
 		Marker:        o.Marker,
 		Sharesnapshot: o.ShareSnapshot,
 	}
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+// CreateHardLinkOptions contains the optional parameters for the Client.CreateHardLink method.
+type CreateHardLinkOptions struct {
+	// LeaseAccessConditions contains optional parameters to access leased entity.
+	LeaseAccessConditions *LeaseAccessConditions
+}
+
+func (o *CreateHardLinkOptions) format() (*generated.FileClientCreateHardLinkOptions, *generated.LeaseAccessConditions) {
+	if o == nil {
+		return nil, nil
+	}
+	return &generated.FileClientCreateHardLinkOptions{}, o.LeaseAccessConditions
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+// CreateSymbolicLinkOptions contains the optional parameters for the Client.CreateSymbolicLink method.
+type CreateSymbolicLinkOptions struct {
+	// LeaseAccessConditions contains optional parameters to access leased entity.
+	LeaseAccessConditions *LeaseAccessConditions
+	// NFS only.
+	FileNFSProperties *NFSProperties
+	// A name-value pair to associate with a file storage object.
+	Metadata map[string]*string
+	// The default value is 'Directory' for Attributes and 'now' for CreationTime and LastWriteTime fields in file.SMBProperties.
+	FileSMBProperties *SMBProperties
+	// Client request id
+	ClientRequestID *string
+}
+
+func (o *CreateSymbolicLinkOptions) format() (*generated.FileClientCreateSymbolicLinkOptions, *generated.LeaseAccessConditions) {
+	if o == nil {
+		return nil, nil
+	}
+	var options *generated.FileClientCreateSymbolicLinkOptions
+	if o.FileNFSProperties != nil {
+		fileCreationTime, fileLastWriteTime := exported.FormatNFSProperties(o.FileNFSProperties, false)
+
+		options = &generated.FileClientCreateSymbolicLinkOptions{
+			FileCreationTime:  fileCreationTime,
+			FileLastWriteTime: fileLastWriteTime,
+			Group:             o.FileNFSProperties.Group,
+			Owner:             o.FileNFSProperties.Owner,
+			Metadata:          o.Metadata,
+		}
+	}
+	return options, o.LeaseAccessConditions
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+// GetSymbolicLinkOptions contains the optional parameters for the Client.GetSymbolicLink method.
+type GetSymbolicLinkOptions struct {
+
+	// The snapshot parameter, when present, specifies the share snapshot to query.
+	ShareSnapshot *string
+
+	// Client request id
+	ClientRequestID *string
+}
+
+func (o *GetSymbolicLinkOptions) format() *generated.FileClientGetSymbolicLinkOptions {
+	if o == nil {
+		return nil
+	}
+	return &generated.FileClientGetSymbolicLinkOptions{
+		Sharesnapshot: o.ShareSnapshot,
+	}
+
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

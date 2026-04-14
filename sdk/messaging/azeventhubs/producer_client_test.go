@@ -16,9 +16,9 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/sas"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/test"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2/internal/sas"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -603,14 +603,14 @@ func TestProducerClient_SendBatchExample(t *testing.T) {
 	consumerClient, err := azeventhubs.NewConsumerClient(testParams.EventHubNamespace, testParams.EventHubName, azeventhubs.DefaultConsumerGroup, testParams.Cred, nil)
 	require.NoError(t, err)
 
-	defer consumerClient.Close(context.Background())
+	defer func() { _ = consumerClient.Close(context.Background()) }()
 
 	partitionClient, err := consumerClient.NewPartitionClient("0", &azeventhubs.PartitionClientOptions{
 		StartPosition: getStartPosition(beforeSend),
 	})
 	require.NoError(t, err)
 
-	defer partitionClient.Close(context.Background())
+	defer func() { _ = partitionClient.Close(context.Background()) }()
 
 	receivedEvents, err := partitionClient.ReceiveEvents(context.Background(), 5, nil)
 	require.NoError(t, err)
@@ -622,6 +622,24 @@ func TestProducerClient_SendBatchExample(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		require.Equal(t, string(makeByteSlice(i, messageSize)), string(receivedEvents[i].Body))
 	}
+}
+
+func TestProducerClientUsingCustomEndpoint(t *testing.T) {
+	testParams := test.GetConnectionParamsForTest(t)
+
+	producerClient, err := azeventhubs.NewProducerClient(testParams.EventHubNamespace, testParams.EventHubName, testParams.Cred, &azeventhubs.ProducerClientOptions{
+		CustomEndpoint: "127.0.0.1",
+		RetryOptions: azeventhubs.RetryOptions{
+			MaxRetries: -1,
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = producerClient.NewEventDataBatch(context.Background(), nil)
+
+	// NOTE, this is a little silly, but we just want to prove
+	// that CustomEndpoint does get used as the actual TCP endpoint we connect to.
+	require.Contains(t, err.Error(), "127.0.0.1:5671")
 }
 
 func makeByteSlice(index int, total int) []byte {

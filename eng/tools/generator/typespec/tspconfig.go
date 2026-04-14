@@ -14,40 +14,19 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-/*
-tspconfig schema: https://typespec.io/docs/handbook/configuration#schema
-*/
 type TypeSpecConfig struct {
 	Path string
 
 	TypeSpecProjectSchema
 }
 
-// https://typespec.io/docs/handbook/configuration#schema
 type TypeSpecProjectSchema struct {
-	Extends              string         `yaml:"extends,omitempty"`
-	Parameters           map[string]any `yaml:"parameters,omitempty"`
-	EnvironmentVariables map[string]any `yaml:"environment-variables,omitempty"`
-	WarnAsError          bool           `yaml:"warn-as-error,omitempty"`
-	OutPutDir            string         `yaml:"output-dir,omitempty"`
-	Trace                []string       `yaml:"trace,omitempty"`
-	Imports              string         `yaml:"imports,omitempty"`
-	Emit                 []string       `yaml:"emit,omitempty"`
-	Options              map[string]any `yaml:"options,omitempty"`
-	Linter               LinterConfig   `yaml:"linter,omitempty"`
+	Parameters *map[string]any      `yaml:"parameters,omitempty"`
+	Options    *TypeSpecEmitOptions `yaml:"options,omitempty"`
 }
 
-// <library name>:<rule/ruleset name>
-type LinterConfig struct {
-	Extends []RuleRef          `yaml:"extends,omitempty"`
-	Enable  map[RuleRef]bool   `yaml:"enable,omitempty"`
-	Disable map[RuleRef]string `yaml:"disable,omitempty"`
-}
-
-type RuleRef string
-
-func (r RuleRef) Validate() bool {
-	return regexp.MustCompile(`.*/.*`).MatchString(string(r))
+type TypeSpecEmitOptions struct {
+	GoConfig *GoEmitterOptions `yaml:"@azure-tools/typespec-go,omitempty"`
 }
 
 func ParseTypeSpecConfig(tspconfigPath string) (*TypeSpecConfig, error) {
@@ -63,123 +42,107 @@ func ParseTypeSpecConfig(tspconfigPath string) (*TypeSpecConfig, error) {
 			return nil, err
 		}
 		defer resp.Body.Close()
-		data, err = io.ReadAll(resp.Body)
-		if err != nil {
+		if data, err = io.ReadAll(resp.Body); err != nil {
 			return nil, err
 		}
 	} else {
 		// local path
-		data, err = os.ReadFile(tspconfigPath)
-		if err != nil {
+		if data, err = os.ReadFile(tspconfigPath); err != nil {
 			return nil, err
 		}
 	}
 
-	err = yaml.Unmarshal(data, &(tspConfig.TypeSpecProjectSchema))
-	if err != nil {
+	if err = yaml.Unmarshal(data, &(tspConfig.TypeSpecProjectSchema)); err != nil {
 		return nil, err
 	}
 
-	// replace {service-dir} and {package-dir}
-	exist := tspConfig.ExistEmitOption(string(TypeSpec_GO))
-	if exist {
-		emitOption, err := tspConfig.EmitOption(string(TypeSpec_GO))
-		if err != nil {
-			return nil, err
-		}
+	if _, err = tspConfig.ExistEmitOption(); err != nil {
+		return nil, err
+	}
 
-		goOption := emitOption.(map[string]any)
-		module, ok := goOption["module"].(string)
-		if !ok {
-			return nil, fmt.Errorf("the module must be set in %s option", TypeSpec_GO)
+	if tspConfig.Options.GoConfig.ServiceDir == "" && tspConfig.Parameters != nil {
+		if serviceDirRaw, ok := (*tspConfig.Parameters)["service-dir"]; ok {
+			if serviceDirMap, ok := serviceDirRaw.(map[string]any); ok {
+				if defaultVal, ok := serviceDirMap["default"]; ok {
+					if defaultStr, ok := defaultVal.(string); ok {
+						tspConfig.Options.GoConfig.ServiceDir = defaultStr
+					}
+				}
+			}
 		}
+	}
 
-		if strings.Contains(module, "{service-dir}") {
-			module = strings.ReplaceAll(module, "{service-dir}", goOption["service-dir"].(string))
-		}
+	tspConfig.Options.GoConfig.EmitterOutputDir = replacePlaceholder(tspConfig, tspConfig.Options.GoConfig.EmitterOutputDir)
+	tspConfig.Options.GoConfig.Module = replacePlaceholder(tspConfig, tspConfig.Options.GoConfig.Module)
+	tspConfig.Options.GoConfig.ContainingModule = replacePlaceholder(tspConfig, tspConfig.Options.GoConfig.ContainingModule)
 
-		if strings.Contains(module, "{package-dir}") {
-			module = strings.ReplaceAll(module, "{package-dir}", goOption["package-dir"].(string))
-		}
-
-		goOption["module"] = module
-		tspConfig.EditOptions(string(TypeSpec_GO), goOption, false)
-
-		typespecGoOption, err := NewGoEmitterOptions(goOption)
-		if err != nil {
-			return nil, err
-		}
-		if err = typespecGoOption.Validate(); err != nil {
-			return nil, err
-		}
+	if err = tspConfig.Options.GoConfig.Validate(); err != nil {
+		return nil, err
 	}
 
 	return &tspConfig, err
 }
 
-func (tc *TypeSpecConfig) GetPackageModuleRelativePath() string {
-	return tc.Options["@azure-tools/typespec-go"].(map[string]interface{})["service-dir"].(string) + "/" + tc.Options["@azure-tools/typespec-go"].(map[string]interface{})["package-dir"].(string)
+func replacePlaceholder(tspConfig TypeSpecConfig, str string) string {
+	result := str
+	if strings.Contains(result, "{service-dir}") {
+		result = strings.ReplaceAll(result, "{service-dir}", tspConfig.Options.GoConfig.ServiceDir)
+	}
+	if strings.Contains(result, "{package-dir}") {
+		result = strings.ReplaceAll(result, "{package-dir}", tspConfig.Options.GoConfig.PackageDir)
+	}
+	return result
 }
 
-func (tc *TypeSpecConfig) EditOptions(emit string, option map[string]any, append bool) {
-	if tc.Options == nil {
-		tc.Options = make(map[string]any)
-	}
-
-	if _, ok := tc.Options[emit]; ok {
-		if append {
-			op1 := tc.Options[emit].(map[string]any)
-			for k, v := range option {
-				op1[k] = v
-			}
-			tc.Options[emit] = op1
-		} else {
-			tc.Options[emit] = option
-		}
+func (tc *TypeSpecConfig) GetPackageRelativePath() string {
+	if tc.Options.GoConfig.EmitterOutputDir != "" {
+		re := regexp.MustCompile(`\{output-dir\}/`)
+		return re.ReplaceAllString(tc.Options.GoConfig.EmitterOutputDir, "")
+	} else if tc.Options.GoConfig.PackageDir == "" {
+		return tc.GetModuleRelativePath()
 	} else {
-		tc.Options[emit] = option
+		return tc.Options.GoConfig.ServiceDir + "/" + tc.Options.GoConfig.PackageDir
 	}
 }
 
-func (tc *TypeSpecConfig) Save() error {
-	data, err := yaml.MarshalWithOptions(tc.TypeSpecProjectSchema, yaml.IndentSequence(true))
-	if err != nil {
-		return err
+func (tc *TypeSpecConfig) GetModuleRelativePath() string {
+
+	module := tc.Options.GoConfig.Module
+	if tc.Options.GoConfig.ContainingModule != "" {
+		module = tc.Options.GoConfig.ContainingModule
 	}
 
-	return os.WriteFile(tc.Path, data, 0666)
+	re := regexp.MustCompile(`github\.com/Azure/azure-sdk-for-go/|/v\d+$`)
+	return re.ReplaceAllString(module, "")
 }
 
-func (tc *TypeSpecConfig) EmitOption(emit string) (any, error) {
+func (tc TypeSpecConfig) ExistEmitOption() (bool, error) {
 	if tc.Options == nil {
-		return nil, fmt.Errorf("no options found in %s", tc.Path)
+		return false, fmt.Errorf("no options found in %s", tc.Path)
 	}
-
-	if v, ok := tc.Options[emit]; ok {
-		return v, nil
+	if tc.Options.GoConfig == nil {
+		return false, fmt.Errorf("Go emitter config not found in %s", tc.Path)
 	}
-
-	return nil, fmt.Errorf("emit %s option not found in %s", emit, tc.Path)
+	return true, nil
 }
 
-func (tc TypeSpecConfig) ExistEmitOption(emit string) bool {
-	_, err := tc.EmitOption(emit)
-	return err == nil
+// GetRpAndPackageName return [rpName, packageName]
+// module: github.com/Azure/azure-sdk-for-go/sdk/.../{rpName}/{packageName}
+func (tc TypeSpecConfig) GetRpAndPackageName() ([2]string, error) {
+	module := tc.Options.GoConfig.Module
+	if module == "" {
+		module = tc.Options.GoConfig.ContainingModule
+	}
+	return tc.GetRpAndPackageNameByModule(module)
 }
 
-// GetModuleName return [rpName, packageName]
-// module: github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/{rpName}/{packageName}
-func (tc TypeSpecConfig) GetModuleName() ([2]string, error) {
-	option, err := tc.EmitOption(string(TypeSpec_GO))
-	if err != nil {
-		return [2]string{}, err
-	}
-
-	module := (option.(map[string]any))["module"].(string)
+// GetRpAndPackageName return [rpName, packageName]
+// module: github.com/Azure/azure-sdk-for-go/sdk/.../{rpName}/{packageName}
+func (tc TypeSpecConfig) GetRpAndPackageNameByModule(module string) ([2]string, error) {
 	s := strings.Split(module, "/")
 	l := len(s)
-	if l != 7 {
-		return [2]string{}, fmt.Errorf("module is invalid and must be in the format of `github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/{rpName}/{packageName}`")
+	if l < 2 {
+		return [2]string{}, fmt.Errorf("module is invalid")
 	}
 	if !strings.Contains(s[l-1], "arm") && !strings.Contains(s[l-1], "az") {
 		return [2]string{}, fmt.Errorf("packageName is invalid and must start with `arm` or `az`")
@@ -188,7 +151,7 @@ func (tc TypeSpecConfig) GetModuleName() ([2]string, error) {
 	return [2]string{s[l-2], s[l-1]}, nil
 }
 
-func TspConfigExistEmitOption(tspconfig string, emit string) (bool, error) {
+func ExistGoConfigInTspConfig(tspconfig string) (bool, error) {
 	if tspconfig == "" {
 		return false, fmt.Errorf("tspconfig path is empty")
 	}
@@ -198,5 +161,5 @@ func TspConfigExistEmitOption(tspconfig string, emit string) (bool, error) {
 		return false, err
 	}
 
-	return tsc.ExistEmitOption(string(TypeSpec_GO)), nil
+	return tsc.ExistEmitOption()
 }

@@ -9,8 +9,8 @@ import (
 	"sync"
 
 	azlog "github.com/Azure/azure-sdk-for-go/sdk/internal/log"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/amqpwrap"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/exported"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2/internal/amqpwrap"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2/internal/exported"
 )
 
 type AMQPLink interface {
@@ -365,11 +365,19 @@ func (ls *linkState[LinkT]) Close(ctx context.Context) error {
 		ls.cancelAuth()
 	}
 
+	var linkCloseErr error
+
 	if ls.link != nil {
-		return ls.Link().Close(ctx)
+		// we're more interested in a link failing to close than we are in
+		// the session.
+		linkCloseErr = ls.Link().Close(ctx)
 	}
 
-	return nil
+	if ls.session != nil {
+		_ = ls.session.Close(ctx)
+	}
+
+	return linkCloseErr
 }
 
 func (ls *linkState[LinkT]) PartitionID() string {

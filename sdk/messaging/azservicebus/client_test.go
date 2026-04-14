@@ -6,6 +6,7 @@ package azservicebus
 import (
 	"context"
 	"io"
+
 	"net"
 	"net/http"
 	"strings"
@@ -19,8 +20,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/sas"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/test"
+	"github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
-	"nhooyr.io/websocket"
 )
 
 func TestNewClientWithAzureIdentity(t *testing.T) {
@@ -104,8 +105,8 @@ func TestNewClientWithWebsockets(t *testing.T) {
 
 func TestNewClientUsingSharedAccessSignature(t *testing.T) {
 	getLogsFn := test.CaptureLogsForTest(false)
+	cs := test.GetConnectionString(t, test.EnvKeyConnectionString)
 
-	cs := test.MustGetEnvVar(t, test.EnvKeyConnectionString)
 	sasCS, err := sas.CreateConnectionStringWithSASUsingExpiry(cs, time.Now().UTC().Add(time.Hour))
 	require.NoError(t, err)
 
@@ -159,7 +160,9 @@ func TestNewClientNewSenderNotFound(t *testing.T) {
 	defer cancel()
 
 	err = sender.SendMessage(ctx, &Message{Body: []byte("hello")}, nil)
-	assertRPCNotFound(t, err)
+	var sbErr *Error
+	require.ErrorAs(t, err, &sbErr)
+	require.Equal(t, CodeNotFound, sbErr.Code)
 }
 
 func TestNewClientNewReceiverNotFound(t *testing.T) {
@@ -175,7 +178,9 @@ func TestNewClientNewReceiverNotFound(t *testing.T) {
 
 	messages, err := receiver.ReceiveMessages(ctx, 1, nil)
 	require.Nil(t, messages)
-	assertRPCNotFound(t, err)
+	var sbErr *Error
+	require.ErrorAs(t, err, &sbErr)
+	require.Equal(t, CodeNotFound, sbErr.Code)
 
 	receiver, err = client.NewReceiverForSubscription("non-existent-topic", "non-existent-subscription", nil)
 	require.NoError(t, err)
@@ -185,7 +190,9 @@ func TestNewClientNewReceiverNotFound(t *testing.T) {
 
 	messages, err = receiver.PeekMessages(ctx, 1, nil)
 	require.Nil(t, messages)
-	assertRPCNotFound(t, err)
+	sbErr = nil
+	require.ErrorAs(t, err, &sbErr)
+	require.Equal(t, CodeNotFound, sbErr.Code)
 }
 
 func TestClientNewSessionReceiverNotFound(t *testing.T) {
@@ -198,14 +205,18 @@ func TestClientNewSessionReceiverNotFound(t *testing.T) {
 
 	receiver, err := client.AcceptSessionForQueue(ctx, "non-existent-queue", "session-id", nil)
 	require.Nil(t, receiver)
-	assertRPCNotFound(t, err)
+	var sbErr *Error
+	require.ErrorAs(t, err, &sbErr)
+	require.Equal(t, CodeNotFound, sbErr.Code)
 
 	ctx, cancel = context.WithTimeout(context.Background(), fastNotFoundDuration)
 	defer cancel()
 
 	receiver, err = client.AcceptNextSessionForQueue(ctx, "non-existent-queue", nil)
 	require.Nil(t, receiver)
-	assertRPCNotFound(t, err)
+	sbErr = nil
+	require.ErrorAs(t, err, &sbErr)
+	require.Equal(t, CodeNotFound, sbErr.Code)
 }
 
 func TestClientCloseVsClosePermanently(t *testing.T) {
@@ -328,7 +339,7 @@ func TestClientPropagatesRetryOptionsForSessions(t *testing.T) {
 }
 
 func TestClientUnauthorizedCreds(t *testing.T) {
-	allPowerfulCS := test.MustGetEnvVar(t, test.EnvKeyConnectionString)
+	allPowerfulCS := test.GetConnectionString(t, test.EnvKeyConnectionString)
 	queueName := "testqueue"
 
 	t.Run("ListenOnly with Sender", func(t *testing.T) {
@@ -438,6 +449,28 @@ func TestClientUnauthorizedCreds(t *testing.T) {
 	})
 }
 
+func TestClientUsingCustomEndpoint(t *testing.T) {
+	serviceBusClient, cleanup, queueName := setupLiveTest(t, &liveTestOptions{
+		ClientOptions: &ClientOptions{
+			// A custom endpoint can be used when you need to connect to a TCP proxy.
+			CustomEndpoint: "127.0.0.1",
+			RetryOptions: RetryOptions{
+				MaxRetries: -1,
+			},
+		},
+	})
+	defer cleanup()
+
+	sender, err := serviceBusClient.NewSender(queueName, nil)
+	require.NoError(t, err)
+
+	err = sender.SendMessage(context.Background(), &Message{Body: []byte("hello")}, nil)
+
+	// NOTE, this is a little silly, but we just want to prove
+	// that CustomEndpoint does get used as the actual TCP endpoint we connect to.
+	require.Contains(t, err.Error(), "127.0.0.1:5671")
+}
+
 func TestNewClientUnitTests(t *testing.T) {
 	t.Run("WithTokenCredential", func(t *testing.T) {
 		fakeTokenCredential := struct{ azcore.TokenCredential }{}
@@ -531,18 +564,6 @@ func TestNewClientUnitTests(t *testing.T) {
 			MaxRetryDelay: 12 * time.Hour,
 		}, subscriptionReceiver.retryOptions)
 	})
-}
-
-func assertRPCNotFound(t *testing.T, err error) {
-	require.NotNil(t, err)
-
-	var rpcError interface {
-		RPCCode() int
-		error
-	}
-
-	require.ErrorAs(t, err, &rpcError)
-	require.Equal(t, http.StatusNotFound, rpcError.RPCCode())
 }
 
 func forceManagementSettlement(messages []*ReceivedMessage) {

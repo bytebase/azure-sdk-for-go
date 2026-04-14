@@ -2,14 +2,14 @@
 
 The `{{.packageName}}` module provides operations for working with Azure {{.packageTitle}}.
 
-[Source code](https://github.com/Azure/azure-sdk-for-go/tree/main/sdk/resourcemanager/{{.rpName}}/{{.packageName}})
+[Source code](https://github.com/Azure/azure-sdk-for-go/tree/main/{{.moduleRelativePath}})
 
 # Getting started
 
 ## Prerequisites
 
-- an [Azure subscription](https://azure.microsoft.com/free/)
-- Go {{.goVersion}} or above (You could download and install the latest version of Go from [here](https://go.dev/doc/install). It will replace the existing Go on your machine. If you want to install multiple Go versions on the same machine, you could refer this [doc](https://go.dev/doc/manage-install).)
+- An [Azure subscription](https://azure.microsoft.com/free/)
+- [Supported](https://aka.ms/azsdk/go/supported-versions) version of Go (You could download and install the latest version of Go from [here](https://go.dev/doc/install). It will replace the existing Go on your machine. If you want to install multiple Go versions on the same machine, you could refer this [doc](https://go.dev/doc/manage-install).)
 
 ## Install the package
 
@@ -18,7 +18,7 @@ This project uses [Go modules](https://github.com/golang/go/wiki/Modules) for ve
 Install the Azure {{.packageTitle}} module:
 
 ```sh
-go get github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/{{.rpName}}/{{.packageName}}
+go get github.com/Azure/azure-sdk-for-go/{{.moduleRelativePath}}
 ```
 
 ## Authorization

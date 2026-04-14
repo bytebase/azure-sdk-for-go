@@ -1,5 +1,33 @@
 # Release History
 
+## 3.1.0-beta.1 (2026-01-16)
+### Features Added
+
+- New struct `AzureFrontDoorProperties`
+- New struct `ManagedOnBehalfOfConfiguration`
+- New struct `MoboBrokerResource`
+- New struct `TelemetryProperties`
+- New field `AzureFrontDoor`, `ManagedOnBehalfOfConfiguration`, `Telemetry` in struct `ConfigurationStoreProperties`
+- New field `AzureFrontDoor`, `Telemetry` in struct `ConfigurationStorePropertiesUpdateParameters`
+- New field `SystemData` in struct `DeletedConfigurationStore`
+- New field `SystemData` in struct `KeyValue`
+- New field `SystemData` in struct `PrivateEndpointConnection`
+- New field `SystemData` in struct `PrivateLinkResource`
+- New field `SystemData` in struct `Snapshot`
+
+
+## 3.0.0 (2025-06-10)
+### Breaking Changes
+
+- Function `*KeyValuesClient.CreateOrUpdate` parameter(s) have been changed from `(context.Context, string, string, string, *KeyValuesClientCreateOrUpdateOptions)` to `(context.Context, string, string, string, KeyValue, *KeyValuesClientCreateOrUpdateOptions)`
+- Field `KeyValueParameters` of struct `KeyValuesClientCreateOrUpdateOptions` has been removed
+
+### Features Added
+
+- New field `DefaultKeyValueRevisionRetentionPeriodInSeconds` in struct `ConfigurationStoreProperties`
+- New field `DefaultKeyValueRevisionRetentionPeriodInSeconds` in struct `ConfigurationStorePropertiesUpdateParameters`
+
+
 ## 2.2.0 (2024-11-20)
 ### Features Added
 

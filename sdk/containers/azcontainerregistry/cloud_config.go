@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
@@ -15,13 +12,13 @@ const (
 
 func init() {
 	cloud.AzureChina.Services[ServiceName] = cloud.ServiceConfiguration{
-		Audience: "https://management.core.chinacloudapi.cn",
+		Audience: defaultAudience,
 	}
 	cloud.AzureGovernment.Services[ServiceName] = cloud.ServiceConfiguration{
-		Audience: "https://management.core.usgovcloudapi.net",
+		Audience: defaultAudience,
 	}
 	cloud.AzurePublic.Services[ServiceName] = cloud.ServiceConfiguration{
-		Audience: "https://management.core.windows.net/",
+		Audience: defaultAudience,
 	}
 }
 

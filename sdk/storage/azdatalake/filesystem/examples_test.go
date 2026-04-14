@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
@@ -10,13 +7,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/Azure/azure-sdk-for-go/sdk/storage/azdatalake/file"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azdatalake/file"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/streaming"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
@@ -177,6 +175,33 @@ func Example_fs_ClientListPaths() {
 			log.Fatal(err)
 		}
 		for _, path := range resp.Paths {
+			fmt.Println(*path.Name)
+		}
+	}
+}
+
+func Example_fs_ClientListDirectoryPaths() {
+	accountName, ok := os.LookupEnv("AZURE_STORAGE_ACCOUNT_NAME")
+	if !ok {
+		panic("AZURE_STORAGE_ACCOUNT_NAME could not be found")
+	}
+	fsName := "testfs"
+	fsURL := fmt.Sprintf("https://%s.dfs.core.windows.net/%s", accountName, fsName)
+
+	cred, err := azidentity.NewDefaultAzureCredential(nil)
+	handleError(err)
+
+	fsClient, err := filesystem.NewClient(fsURL, cred, nil)
+	handleError(err)
+
+	pager := fsClient.NewListDirectoryPathsPager(nil)
+
+	for pager.More() {
+		resp, err := pager.NextPage(context.TODO())
+		if err != nil {
+			log.Fatal(err)
+		}
+		for _, path := range resp.Segment.PathItems {
 			fmt.Println(*path.Name)
 		}
 	}

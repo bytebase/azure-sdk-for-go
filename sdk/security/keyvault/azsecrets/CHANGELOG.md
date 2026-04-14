@@ -1,14 +1,32 @@
 # Release History
 
-## 1.3.1 (Unreleased)
+## 1.5.0-beta.1 (2026-04-08)
 
 ### Features Added
-
-### Breaking Changes
-
-### Bugs Fixed
+* Added `PreviousVersion` field to `Secret` and `DeletedSecret` models for certificate version tracking
+* Added `OutContentType` parameter to `GetSecretOptions` for content type conversion support
+* Added `ContentType` constants for PEM and PFX formats
 
 ### Other Changes
+* Upgraded to API service version `2025-07-01`
+
+## 1.4.0 (2025-06-12)
+
+### Features Added
+* Add fakes support (https://github.com/Azure/azure-sdk-for-go/tree/main/sdk/samples/fakes)
+
+### Other Changes
+* Upgraded to API service version `7.6`
+
+## 1.4.0-beta.1 (2025-04-09)
+
+### Other Changes
+* Upgraded to API service version `7.6-preview.2`
+
+## 1.3.1 (2025-02-13)
+
+### Other Changes
+* Upgraded dependencies
 
 ## 1.3.0 (2024-11-06)
 

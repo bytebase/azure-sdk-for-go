@@ -1,5 +1,135 @@
 # Release History
 
+## 2.2.0 (2025-12-12)
+### Features Added
+
+- New enum type `BlockedDatesConstraintCategory` with values `BlockedDatesConstraintCategoryHiPriorityEvent`, `BlockedDatesConstraintCategoryHoliday`, `BlockedDatesConstraintCategoryQuotaExhausted`
+- New enum type `LicenseKind` with values `LicenseKindVmwareFirewall`
+- New enum type `LicenseName` with values `LicenseNameVmwareFirewall`
+- New enum type `LicenseProvisioningState` with values `LicenseProvisioningStateCanceled`, `LicenseProvisioningStateFailed`, `LicenseProvisioningStateSucceeded`
+- New enum type `MaintenanceCheckType` with values `MaintenanceCheckTypePrecheck`, `MaintenanceCheckTypePreflight`
+- New enum type `MaintenanceManagementOperationKind` with values `MaintenanceManagementOperationKindMaintenanceReadinessRefresh`, `MaintenanceManagementOperationKindReschedule`, `MaintenanceManagementOperationKindSchedule`
+- New enum type `MaintenanceProvisioningState` with values `MaintenanceProvisioningStateCanceled`, `MaintenanceProvisioningStateFailed`, `MaintenanceProvisioningStateSucceeded`, `MaintenanceProvisioningStateUpdating`
+- New enum type `MaintenanceReadinessRefreshOperationStatus` with values `MaintenanceReadinessRefreshOperationStatusFailed`, `MaintenanceReadinessRefreshOperationStatusInProgress`, `MaintenanceReadinessRefreshOperationStatusNotApplicable`, `MaintenanceReadinessRefreshOperationStatusNotStarted`
+- New enum type `MaintenanceReadinessStatus` with values `MaintenanceReadinessStatusDataNotAvailable`, `MaintenanceReadinessStatusNotApplicable`, `MaintenanceReadinessStatusNotReady`, `MaintenanceReadinessStatusReady`
+- New enum type `MaintenanceStateName` with values `MaintenanceStateNameCanceled`, `MaintenanceStateNameFailed`, `MaintenanceStateNameInProgress`, `MaintenanceStateNameNotScheduled`, `MaintenanceStateNameScheduled`, `MaintenanceStateNameSuccess`
+- New enum type `MaintenanceStatusFilter` with values `MaintenanceStatusFilterActive`, `MaintenanceStatusFilterInactive`
+- New enum type `MaintenanceType` with values `MaintenanceTypeESXI`, `MaintenanceTypeNSXT`, `MaintenanceTypeVCSA`
+- New enum type `RescheduleOperationConstraintKind` with values `RescheduleOperationConstraintKindAvailableWindowForMaintenanceWhileRescheduleOperation`, `RescheduleOperationConstraintKindBlockedWhileRescheduleOperation`
+- New enum type `ScheduleOperationConstraintKind` with values `ScheduleOperationConstraintKindAvailableWindowForMaintenanceWhileScheduleOperation`, `ScheduleOperationConstraintKindBlockedWhileScheduleOperation`, `ScheduleOperationConstraintKindSchedulingWindow`
+- New enum type `VcfLicenseKind` with values `VcfLicenseKindVcf5`
+- New function `*AvailableWindowForMaintenanceWhileRescheduleOperation.GetRescheduleOperationConstraint() *RescheduleOperationConstraint`
+- New function `*AvailableWindowForMaintenanceWhileScheduleOperation.GetScheduleOperationConstraint() *ScheduleOperationConstraint`
+- New function `*BlockedWhileRescheduleOperation.GetRescheduleOperationConstraint() *RescheduleOperationConstraint`
+- New function `*BlockedWhileScheduleOperation.GetScheduleOperationConstraint() *ScheduleOperationConstraint`
+- New function `*ClientFactory.NewLicensesClient() *LicensesClient`
+- New function `*ClientFactory.NewMaintenancesClient() *MaintenancesClient`
+- New function `*LicenseProperties.GetLicenseProperties() *LicenseProperties`
+- New function `NewLicensesClient(subscriptionID string, credential azcore.TokenCredential, options *arm.ClientOptions) (*LicensesClient, error)`
+- New function `*LicensesClient.BeginCreateOrUpdate(ctx context.Context, resourceGroupName string, privateCloudName string, licenseName LicenseName, resource License, options *LicensesClientBeginCreateOrUpdateOptions) (*runtime.Poller[LicensesClientCreateOrUpdateResponse], error)`
+- New function `*LicensesClient.BeginDelete(ctx context.Context, resourceGroupName string, privateCloudName string, licenseName LicenseName, options *LicensesClientBeginDeleteOptions) (*runtime.Poller[LicensesClientDeleteResponse], error)`
+- New function `*LicensesClient.Get(ctx context.Context, resourceGroupName string, privateCloudName string, licenseName LicenseName, options *LicensesClientGetOptions) (LicensesClientGetResponse, error)`
+- New function `*LicensesClient.GetProperties(ctx context.Context, resourceGroupName string, privateCloudName string, licenseName LicenseName, options *LicensesClientGetPropertiesOptions) (LicensesClientGetPropertiesResponse, error)`
+- New function `*LicensesClient.NewListPager(resourceGroupName string, privateCloudName string, options *LicensesClientListOptions) *runtime.Pager[LicensesClientListResponse]`
+- New function `*MaintenanceManagementOperation.GetMaintenanceManagementOperation() *MaintenanceManagementOperation`
+- New function `*MaintenanceReadinessRefreshOperation.GetMaintenanceManagementOperation() *MaintenanceManagementOperation`
+- New function `NewMaintenancesClient(subscriptionID string, credential azcore.TokenCredential, options *arm.ClientOptions) (*MaintenancesClient, error)`
+- New function `*MaintenancesClient.Get(ctx context.Context, resourceGroupName string, privateCloudName string, maintenanceName string, options *MaintenancesClientGetOptions) (MaintenancesClientGetResponse, error)`
+- New function `*MaintenancesClient.InitiateChecks(ctx context.Context, resourceGroupName string, privateCloudName string, maintenanceName string, options *MaintenancesClientInitiateChecksOptions) (MaintenancesClientInitiateChecksResponse, error)`
+- New function `*MaintenancesClient.NewListPager(resourceGroupName string, privateCloudName string, options *MaintenancesClientListOptions) *runtime.Pager[MaintenancesClientListResponse]`
+- New function `*MaintenancesClient.Reschedule(ctx context.Context, resourceGroupName string, privateCloudName string, maintenanceName string, body MaintenanceReschedule, options *MaintenancesClientRescheduleOptions) (MaintenancesClientRescheduleResponse, error)`
+- New function `*MaintenancesClient.Schedule(ctx context.Context, resourceGroupName string, privateCloudName string, maintenanceName string, body MaintenanceSchedule, options *MaintenancesClientScheduleOptions) (MaintenancesClientScheduleResponse, error)`
+- New function `*PrivateCloudsClient.GetVcfLicense(ctx context.Context, resourceGroupName string, privateCloudName string, options *PrivateCloudsClientGetVcfLicenseOptions) (PrivateCloudsClientGetVcfLicenseResponse, error)`
+- New function `*RescheduleOperation.GetMaintenanceManagementOperation() *MaintenanceManagementOperation`
+- New function `*RescheduleOperationConstraint.GetRescheduleOperationConstraint() *RescheduleOperationConstraint`
+- New function `*ScheduleOperation.GetMaintenanceManagementOperation() *MaintenanceManagementOperation`
+- New function `*ScheduleOperationConstraint.GetScheduleOperationConstraint() *ScheduleOperationConstraint`
+- New function `*SchedulingWindow.GetScheduleOperationConstraint() *ScheduleOperationConstraint`
+- New function `*Vcf5License.GetVcfLicense() *VcfLicense`
+- New function `*VcfLicense.GetVcfLicense() *VcfLicense`
+- New function `*VmwareFirewallLicenseProperties.GetLicenseProperties() *LicenseProperties`
+- New struct `AvailableWindowForMaintenanceWhileRescheduleOperation`
+- New struct `AvailableWindowForMaintenanceWhileScheduleOperation`
+- New struct `BlockedDatesConstraintTimeRange`
+- New struct `BlockedWhileRescheduleOperation`
+- New struct `BlockedWhileScheduleOperation`
+- New struct `ImpactedMaintenanceResource`
+- New struct `ImpactedMaintenanceResourceError`
+- New struct `Label`
+- New struct `License`
+- New struct `LicenseListResult`
+- New struct `Maintenance`
+- New struct `MaintenanceFailedCheck`
+- New struct `MaintenanceListResult`
+- New struct `MaintenanceProperties`
+- New struct `MaintenanceReadiness`
+- New struct `MaintenanceReadinessRefreshOperation`
+- New struct `MaintenanceReschedule`
+- New struct `MaintenanceSchedule`
+- New struct `MaintenanceState`
+- New struct `RescheduleOperation`
+- New struct `ScheduleOperation`
+- New struct `SchedulingWindow`
+- New struct `Vcf5License`
+- New struct `VmwareFirewallLicenseProperties`
+- New field `VcfLicense` in struct `PrivateCloudProperties`
+
+
+## 2.1.0 (2025-07-29)
+### Features Added
+
+- New enum type `HostKind` with values `HostKindGeneral`, `HostKindSpecialized`
+- New enum type `HostMaintenance` with values `HostMaintenanceReplacement`, `HostMaintenanceUpgrade`
+- New enum type `HostProvisioningState` with values `HostProvisioningStateCanceled`, `HostProvisioningStateFailed`, `HostProvisioningStateSucceeded`
+- New enum type `ProvisionedNetworkProvisioningState` with values `ProvisionedNetworkProvisioningStateCanceled`, `ProvisionedNetworkProvisioningStateFailed`, `ProvisionedNetworkProvisioningStateSucceeded`
+- New enum type `ProvisionedNetworkTypes` with values `ProvisionedNetworkTypesEsxManagement`, `ProvisionedNetworkTypesEsxReplication`, `ProvisionedNetworkTypesHcxManagement`, `ProvisionedNetworkTypesHcxUplink`, `ProvisionedNetworkTypesVcenterManagement`, `ProvisionedNetworkTypesVmotion`, `ProvisionedNetworkTypesVsan`
+- New enum type `PureStoragePolicyProvisioningState` with values `PureStoragePolicyProvisioningStateCanceled`, `PureStoragePolicyProvisioningStateDeleting`, `PureStoragePolicyProvisioningStateFailed`, `PureStoragePolicyProvisioningStateSucceeded`, `PureStoragePolicyProvisioningStateUpdating`
+- New enum type `ResourceSKUResourceType` with values `ResourceSKUResourceTypePrivateClouds`, `ResourceSKUResourceTypePrivateCloudsClusters`
+- New enum type `ResourceSKURestrictionsReasonCode` with values `ResourceSKURestrictionsReasonCodeNotAvailableForSubscription`, `ResourceSKURestrictionsReasonCodeQuotaID`
+- New enum type `ResourceSKURestrictionsType` with values `ResourceSKURestrictionsTypeLocation`, `ResourceSKURestrictionsTypeZone`
+- New function `*ClientFactory.NewHostsClient() *HostsClient`
+- New function `*ClientFactory.NewProvisionedNetworksClient() *ProvisionedNetworksClient`
+- New function `*ClientFactory.NewPureStoragePoliciesClient() *PureStoragePoliciesClient`
+- New function `*ClientFactory.NewSKUsClient() *SKUsClient`
+- New function `*GeneralHostProperties.GetHostProperties() *HostProperties`
+- New function `*HostProperties.GetHostProperties() *HostProperties`
+- New function `NewHostsClient(string, azcore.TokenCredential, *arm.ClientOptions) (*HostsClient, error)`
+- New function `*HostsClient.Get(context.Context, string, string, string, string, *HostsClientGetOptions) (HostsClientGetResponse, error)`
+- New function `*HostsClient.NewListPager(string, string, string, *HostsClientListOptions) *runtime.Pager[HostsClientListResponse]`
+- New function `NewProvisionedNetworksClient(string, azcore.TokenCredential, *arm.ClientOptions) (*ProvisionedNetworksClient, error)`
+- New function `*ProvisionedNetworksClient.Get(context.Context, string, string, string, *ProvisionedNetworksClientGetOptions) (ProvisionedNetworksClientGetResponse, error)`
+- New function `*ProvisionedNetworksClient.NewListPager(string, string, *ProvisionedNetworksClientListOptions) *runtime.Pager[ProvisionedNetworksClientListResponse]`
+- New function `NewPureStoragePoliciesClient(string, azcore.TokenCredential, *arm.ClientOptions) (*PureStoragePoliciesClient, error)`
+- New function `*PureStoragePoliciesClient.BeginCreateOrUpdate(context.Context, string, string, string, PureStoragePolicy, *PureStoragePoliciesClientBeginCreateOrUpdateOptions) (*runtime.Poller[PureStoragePoliciesClientCreateOrUpdateResponse], error)`
+- New function `*PureStoragePoliciesClient.BeginDelete(context.Context, string, string, string, *PureStoragePoliciesClientBeginDeleteOptions) (*runtime.Poller[PureStoragePoliciesClientDeleteResponse], error)`
+- New function `*PureStoragePoliciesClient.Get(context.Context, string, string, string, *PureStoragePoliciesClientGetOptions) (PureStoragePoliciesClientGetResponse, error)`
+- New function `*PureStoragePoliciesClient.NewListPager(string, string, *PureStoragePoliciesClientListOptions) *runtime.Pager[PureStoragePoliciesClientListResponse]`
+- New function `NewSKUsClient(string, azcore.TokenCredential, *arm.ClientOptions) (*SKUsClient, error)`
+- New function `*SKUsClient.NewListPager(*SKUsClientListOptions) *runtime.Pager[SKUsClientListResponse]`
+- New function `*SpecializedHostProperties.GetHostProperties() *HostProperties`
+- New struct `GeneralHostProperties`
+- New struct `Host`
+- New struct `HostListResult`
+- New struct `PagedResourceSKU`
+- New struct `ProvisionedNetwork`
+- New struct `ProvisionedNetworkListResult`
+- New struct `ProvisionedNetworkProperties`
+- New struct `PureStoragePolicy`
+- New struct `PureStoragePolicyListResult`
+- New struct `PureStoragePolicyProperties`
+- New struct `PureStorageVolume`
+- New struct `ResourceSKU`
+- New struct `ResourceSKUCapabilities`
+- New struct `ResourceSKULocationInfo`
+- New struct `ResourceSKURestrictionInfo`
+- New struct `ResourceSKURestrictions`
+- New struct `ResourceSKUZoneDetails`
+- New struct `SpecializedHostProperties`
+- New field `ManagementNetwork`, `UplinkNetwork` in struct `AddonHcxProperties`
+- New field `PureStorageVolume` in struct `DatastoreProperties`
+- New field `Zones` in struct `PrivateCloud`
+
+
 ## 2.0.0 (2024-09-26)
 ### Breaking Changes
 

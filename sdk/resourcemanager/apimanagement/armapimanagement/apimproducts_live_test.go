@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
@@ -15,7 +12,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/recording"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/apimanagement/armapimanagement/v2"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/apimanagement/armapimanagement/v3"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/internal/v3/testutil"
 	"github.com/stretchr/testify/suite"
 )
@@ -268,7 +265,11 @@ func (testsuite *ApimproductsTestSuite) TestProductpolicy() {
 
 	// From step ProductPolicy_ListByProduct
 	fmt.Println("Call operation: ProductPolicy_ListByProduct")
-	_, err = productPolicyClient.ListByProduct(testsuite.ctx, testsuite.resourceGroupName, testsuite.serviceName, testsuite.productId, nil)
+	pager := productPolicyClient.NewListByProductPager(testsuite.resourceGroupName, testsuite.serviceName, testsuite.productId, nil)
+	for pager.More() {
+		_, err = pager.NextPage(testsuite.ctx)
+		testsuite.Require().NoError(err)
+	}
 	testsuite.Require().NoError(err)
 
 	// From step ProductPolicy_Get

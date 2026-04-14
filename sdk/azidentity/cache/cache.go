@@ -1,6 +1,4 @@
-//go:build go1.18 && (darwin || linux || windows)
-// +build go1.18
-// +build darwin linux windows
+//go:build darwin || linux || windows
 
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
@@ -39,7 +37,7 @@ var (
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		in := []byte(n)
+		in := []byte("test content")
 		err = s.Write(ctx, in)
 		if err != nil {
 			storageError = fmt.Errorf(errFmt, err)

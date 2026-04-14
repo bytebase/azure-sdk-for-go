@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
@@ -12,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
@@ -56,7 +54,7 @@ func NewClient(vaultURL string, credential azcore.TokenCredential, options *Clie
 	if err != nil {
 		return nil, err
 	}
-	return &Client{endpoint: vaultURL, internal: azcoreClient}, nil
+	return &Client{vaultBaseUrl: vaultURL, internal: azcoreClient}, nil
 }
 
 // ErrorInfo - Internal error from Azure Key Vault server.
@@ -86,6 +84,48 @@ func (e *ErrorInfo) Error() string {
 	return string(e.data)
 }
 
+// getHandler returns the correct custom handler for Restore operations
+func getHandler[T any](pipeline runtime.Pipeline, resp *http.Response, finalState runtime.FinalStateVia) (runtime.PollingHandler[T], error) {
+	// if fake, don't return a handler
+	// that way, runtime.NewPoller will set the poller to use the fake handler
+	if resp != nil && resp.Header.Get("Fake-Poller-Status") != "" {
+		return nil, nil
+	}
+
+	// return custom restore handler
+	return pollers.NewRestorePoller[T](pipeline, resp, finalState)
+}
+
+// beginPreFullRestore is a custom implementation of BeginFullRestore
+// Uses custom poller handler
+func (client *Client) beginPreFullRestore(ctx context.Context, preRestoreOperationParameters PreRestoreOperationParameters, options *BeginPreFullRestoreOptions) (*runtime.Poller[PreFullRestoreResponse], error) {
+	if options == nil || options.ResumeToken == "" {
+		resp, err := client.preFullRestore(ctx, preRestoreOperationParameters, options)
+		if err != nil {
+			return nil, err
+		}
+		handler, err := getHandler[PreFullRestoreResponse](client.internal.Pipeline(), resp, runtime.FinalStateViaAzureAsyncOp)
+		if err != nil {
+			return nil, err
+		}
+		poller, err := runtime.NewPoller(resp, client.internal.Pipeline(), &runtime.NewPollerOptions[PreFullRestoreResponse]{
+			FinalStateVia: runtime.FinalStateViaAzureAsyncOp,
+			Handler:       handler,
+			Tracer:        client.internal.Tracer(),
+		})
+		return poller, err
+	} else {
+		handler, err := getHandler[PreFullRestoreResponse](client.internal.Pipeline(), nil, "")
+		if err != nil {
+			return nil, err
+		}
+		return runtime.NewPollerFromResumeToken(options.ResumeToken, client.internal.Pipeline(), &runtime.NewPollerFromResumeTokenOptions[PreFullRestoreResponse]{
+			Handler: handler,
+			Tracer:  client.internal.Tracer(),
+		})
+	}
+}
+
 // beginFullRestore is a custom implementation of BeginFullRestore
 // Uses custom poller handler
 func (client *Client) beginFullRestore(ctx context.Context, restoreBlobDetails RestoreOperationParameters, options *BeginFullRestoreOptions) (*runtime.Poller[FullRestoreResponse], error) {
@@ -94,21 +134,24 @@ func (client *Client) beginFullRestore(ctx context.Context, restoreBlobDetails R
 		if err != nil {
 			return nil, err
 		}
-		handler, err := pollers.NewRestorePoller[FullRestoreResponse](client.internal.Pipeline(), resp, runtime.FinalStateViaAzureAsyncOp)
+		handler, err := getHandler[FullRestoreResponse](client.internal.Pipeline(), resp, runtime.FinalStateViaAzureAsyncOp)
 		if err != nil {
 			return nil, err
 		}
-		return runtime.NewPoller(resp, client.internal.Pipeline(), &runtime.NewPollerOptions[FullRestoreResponse]{
-			FinalStateVia: runtime.FinalStateViaAzureAsyncOp,
-			Handler:       handler,
-			Tracer:        client.internal.Tracer(),
+		poller, err := runtime.NewPoller(resp, client.internal.Pipeline(), &runtime.NewPollerOptions[FullRestoreResponse]{
+			Handler: handler,
+			Tracer:  client.internal.Tracer(),
 		})
+		return poller, err
 	} else {
-		handler, err := pollers.NewRestorePoller[FullRestoreResponse](client.internal.Pipeline(), nil, runtime.FinalStateViaAzureAsyncOp)
+		handler, err := getHandler[FullRestoreResponse](client.internal.Pipeline(), nil, "")
 		if err != nil {
 			return nil, err
 		}
-		return runtime.NewPollerFromResumeToken(options.ResumeToken, client.internal.Pipeline(), &runtime.NewPollerFromResumeTokenOptions[FullRestoreResponse]{Handler: handler})
+		return runtime.NewPollerFromResumeToken(options.ResumeToken, client.internal.Pipeline(), &runtime.NewPollerFromResumeTokenOptions[FullRestoreResponse]{
+			Handler: handler,
+			Tracer:  client.internal.Tracer(),
+		})
 	}
 }
 
@@ -120,20 +163,23 @@ func (client *Client) beginSelectiveKeyRestore(ctx context.Context, keyName stri
 		if err != nil {
 			return nil, err
 		}
-		handler, err := pollers.NewRestorePoller[SelectiveKeyRestoreResponse](client.internal.Pipeline(), resp, runtime.FinalStateViaAzureAsyncOp)
+		handler, err := getHandler[SelectiveKeyRestoreResponse](client.internal.Pipeline(), resp, runtime.FinalStateViaAzureAsyncOp)
 		if err != nil {
 			return nil, err
 		}
-		return runtime.NewPoller(resp, client.internal.Pipeline(), &runtime.NewPollerOptions[SelectiveKeyRestoreResponse]{
-			FinalStateVia: runtime.FinalStateViaAzureAsyncOp,
-			Handler:       handler,
-			Tracer:        client.internal.Tracer(),
+		poller, err := runtime.NewPoller(resp, client.internal.Pipeline(), &runtime.NewPollerOptions[SelectiveKeyRestoreResponse]{
+			Handler: handler,
+			Tracer:  client.internal.Tracer(),
 		})
+		return poller, err
 	} else {
-		handler, err := pollers.NewRestorePoller[SelectiveKeyRestoreResponse](client.internal.Pipeline(), nil, runtime.FinalStateViaAzureAsyncOp)
+		handler, err := getHandler[SelectiveKeyRestoreResponse](client.internal.Pipeline(), nil, "")
 		if err != nil {
 			return nil, err
 		}
-		return runtime.NewPollerFromResumeToken(options.ResumeToken, client.internal.Pipeline(), &runtime.NewPollerFromResumeTokenOptions[SelectiveKeyRestoreResponse]{Handler: handler})
+		return runtime.NewPollerFromResumeToken(options.ResumeToken, client.internal.Pipeline(), &runtime.NewPollerFromResumeTokenOptions[SelectiveKeyRestoreResponse]{
+			Handler: handler,
+			Tracer:  client.internal.Tracer(),
+		})
 	}
 }

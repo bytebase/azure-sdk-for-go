@@ -10,7 +10,8 @@
         "scriptWarning": "^\\[WARNING\\]"
       },
       "stdout": {
-        "showInComment": "(Start to|\\[ERROR\\]).*"
+        "showInComment": "(Start to|\\[ERROR\\]).*",
+        "scriptError": "\\[error\\]"
       }
     }
   },
@@ -29,6 +30,22 @@
   },
   "packageOptions": {
     "breakingChangeLabel": "CI-BreakingChange-Go",
-    "breakingChangesLabel": "BreakingChange-Go-Sdk"
+    "breakingChangesLabel": "BreakingChange-Go-Sdk",
+    "buildScript": {
+      "command": "generator build {packagePath}",
+      "path": ""
+    },
+    "updateChangelogContentScript": {
+      "command": "generator changelog {packagePath}",
+      "path": ""
+    },
+    "updateVersionScript": {
+      "command": "generator version {packagePath}",
+      "path": ""
+    },
+    "updateMetadataScript": {
+      "command": "generator metadata {packagePath}",
+      "path": ""
+    }
   }
 }

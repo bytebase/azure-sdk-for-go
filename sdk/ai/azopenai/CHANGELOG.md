@@ -1,6 +1,6 @@
 # Release History
 
-## 0.7.2 (Unreleased)
+## 0.9.1 (Unreleased)
 
 ### Features Added
 
@@ -9,6 +9,64 @@
 ### Bugs Fixed
 
 ### Other Changes
+
+## 0.9.0 (2025-11-10)
+
+### Features Added
+
+- Updating to /v3 of the OpenAI SDK (github.com/openai/openai-go/v3).
+
+### Other Changes
+
+- Added examples demonstrating support for Managed Identity.
+- Added examples demonstrating support for deepseek-r1 reasoning.
+- Migrated examples to using the openai/v1 endpoint.
+
+## 0.8.0 (2025-06-03)
+
+### Breaking Changes
+
+This library has been updated to function as a companion to the [official OpenAI Go client library](https://github.com/openai/openai-go). It provides types and functions that allow interaction with Azure-specific extensions available in the Azure OpenAI service.
+
+See the [migration guide](https://github.com/Azure/azure-sdk-for-go/blob/main/sdk/ai/azopenai/MIGRATION.md) for details on how to update your code to use this library alongside the official OpenAI Go client.
+
+### Other Changes
+
+- Updating to `v1.2.1` of the [OpenAI go module](https://github.com/openai/openai-go).
+- Added samples for responses API.
+
+## 0.7.2 (2025-02-05)
+
+### Features Added
+
+- Updating to support Azure OpenAI API version `2025-01-01-preview`.
+- Updated `ChatCompletionsOptions` and `ChatCompletionsStreamOptions`:
+  - Added `Audio` parameter.
+  - Added `Metadata` parameter.
+  - Added `Modalities` parameter.
+  - Added `Prediction` parameter.
+  - Added `ReasoningEffort` parameter.
+  - Added `Store` parameter.
+  - Added `UserSecurityContext` parameter.
+- Added `Audio` field to `ChatResponseMessage`
+- Added `AudioOutputParameters` type.
+- Added `AudioResponseData` type.
+- Updated `CompletionsUsageCompletionTokensDetails`:
+  - Added `AcceptedPredictionTokens` field.
+  - Added `AudioTokens` field.
+  - Added `RejectedPredictionTokens` field.
+- Updated `CompletionsUsagePromptTokensDetails`:
+  - Added `AudioTokens` field.
+- Added `InputAudioContent` type.
+- Added `ChatRequestDeveloperMessage` type.
+- Added `PredictionContent` type.
+- Added `UserSecurityContext` type.
+- Added `ChatMessageAudioContentItem` type.
+- Added `ChatCompletionModality` enum.
+- Added `ChatRoleDeveloper` to the `ChatRole` enum.
+- Added `InputAudioFormat` enum.
+- Added `OutputAudioFormat` enum.
+- Added `ReasoningEffortValue` enum.
 
 ## 0.7.1 (2024-11-13)
 

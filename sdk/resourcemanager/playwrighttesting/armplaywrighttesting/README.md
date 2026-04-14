@@ -1,5 +1,7 @@
 # Azure Playwrighttesting Module for Go
 
+> Deprecated: use [github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/playwright/armplaywright](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/playwright/armplaywright) instead. Refer to the [migration guide](https://aka.ms/mpt/migration-guidance) for guidance on upgrading. Refer to our [deprecation policy](https://azure.github.io/azure-sdk/policies_support.html) for more details.[github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/playwrighttesting/armplaywrighttesting](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/playwrighttesting/armplaywrighttesting) package has been deprecated and will no longer be maintained after March 8, 2026.
+
 The `armplaywrighttesting` module provides operations for working with Azure Playwrighttesting.
 
 [Source code](https://github.com/Azure/azure-sdk-for-go/tree/main/sdk/resourcemanager/playwrighttesting/armplaywrighttesting)
@@ -9,7 +11,7 @@ The `armplaywrighttesting` module provides operations for working with Azure Pla
 ## Prerequisites
 
 - an [Azure subscription](https://azure.microsoft.com/free/)
-- Go 1.18 or above (You could download and install the latest version of Go from [here](https://go.dev/doc/install). It will replace the existing Go on your machine. If you want to install multiple Go versions on the same machine, you could refer this [doc](https://go.dev/doc/manage-install).)
+- [Supported](https://aka.ms/azsdk/go/supported-versions) version of Go (You could download and install the latest version of Go from [here](https://go.dev/doc/install). It will replace the existing Go on your machine. If you want to install multiple Go versions on the same machine, you could refer this [doc](https://go.dev/doc/manage-install).)
 
 ## Install the package
 

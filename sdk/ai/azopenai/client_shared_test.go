@@ -4,26 +4,30 @@
 package azopenai_test
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
-	"mime"
+	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/ai/azopenai"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/streaming"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/recording"
+	"github.com/Azure/azure-sdk-for-go/sdk/internal/test/credential"
+	"github.com/joho/godotenv"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/azure"
+	"github.com/openai/openai-go/v3/option"
 	"github.com/stretchr/testify/require"
 )
+
+const apiVersion = "2025-03-01-preview"
 
 type endpoint struct {
 	URL    string
@@ -32,34 +36,26 @@ type endpoint struct {
 }
 
 type testVars struct {
-	Batch                                 endpointWithModel
+	Assistants                            endpointWithModel
 	ChatCompletions                       endpointWithModel
 	ChatCompletionsLegacyFunctions        endpointWithModel
 	ChatCompletionsOYD                    endpointWithModel // azure only
 	ChatCompletionsRAI                    endpointWithModel // azure only
-	ChatCompletionsStructuredOutputs      endpointWithModel
 	ChatCompletionsWithJSONResponseFormat endpointWithModel
 	Cognitive                             azopenai.AzureSearchChatExtensionConfiguration
 	Completions                           endpointWithModel
 	DallE                                 endpointWithModel
 	Embeddings                            endpointWithModel
-	Files                                 endpointWithModel
 	Speech                                endpointWithModel
 	TextEmbedding3Small                   endpointWithModel
 	Vision                                endpointWithModel
 	Whisper                               endpointWithModel
+	Reasoning                             endpointWithModel
 }
 
 type endpointWithModel struct {
 	Endpoint endpoint
 	Model    string
-}
-
-func ifAzure[T string | endpoint](azure bool, forAzure T, forOpenAI T) T {
-	if azure {
-		return forAzure
-	}
-	return forOpenAI
 }
 
 // getEnvVariable is recording.GetEnvVariable but it panics if the
@@ -78,7 +74,34 @@ func getEnvVariable(varName string, playbackValue string) string {
 	return val
 }
 
-var azureOpenAI, openAI = func() (testVars, testVars) {
+func getEndpoint(ev string) string {
+	v := getEnvVariable(ev, fakeAzureEndpoint)
+
+	if !strings.HasSuffix(v, "/") {
+		// (this just makes recording replacement easier)
+		v += "/"
+	}
+
+	return v
+}
+
+var azureOpenAI = func() testVars {
+	if recording.GetRecordMode() != recording.PlaybackMode {
+		// check if some of the variables are already in the environment - this'll happen with
+		// live testing.
+		if os.Getenv("COGNITIVE_SEARCH_API_ENDPOINT") == "" {
+			if err := godotenv.Load(); err != nil {
+				panic(fmt.Errorf("Failed to load .env file: %w", err))
+			} else {
+				log.Printf(".env file loaded")
+			}
+		} else {
+			log.Printf(".env file loading skipped - variables already in environment")
+		}
+	} else {
+		log.Printf(".env file loading skipped, since we're in playback mode")
+	}
+
 	servers := struct {
 		USEast         endpoint
 		USNorthCentral endpoint
@@ -86,106 +109,97 @@ var azureOpenAI, openAI = func() (testVars, testVars) {
 		SWECentral     endpoint
 		OpenAI         endpoint
 	}{
-		OpenAI: endpoint{
-			URL:    getEndpoint("OPENAI_ENDPOINT", false), // ex: https://api.openai.com/v1/
-			APIKey: getEnvVariable("OPENAI_API_KEY", fakeAPIKey),
-			Azure:  false,
-		},
 		USEast: endpoint{
-			URL:    getEndpoint("AOAI_ENDPOINT_USEAST", true),
+			URL:    getEndpoint("AOAI_ENDPOINT_USEAST"),
 			APIKey: getEnvVariable("AOAI_ENDPOINT_USEAST_API_KEY", fakeAPIKey),
 			Azure:  true,
 		},
 		USEast2: endpoint{
-			URL:    getEndpoint("AOAI_ENDPOINT_USEAST2", true),
+			URL:    getEndpoint("AOAI_ENDPOINT_USEAST2"),
 			APIKey: getEnvVariable("AOAI_ENDPOINT_USEAST2_API_KEY", fakeAPIKey),
 			Azure:  true,
 		},
 		USNorthCentral: endpoint{
-			URL:    getEndpoint("AOAI_ENDPOINT_USNORTHCENTRAL", true),
+			URL:    getEndpoint("AOAI_ENDPOINT_USNORTHCENTRAL"),
 			APIKey: getEnvVariable("AOAI_ENDPOINT_USNORTHCENTRAL_API_KEY", fakeAPIKey),
 			Azure:  true,
 		},
 		SWECentral: endpoint{
-			URL:    getEndpoint("AOAI_ENDPOINT_SWECENTRAL", true),
+			URL:    getEndpoint("AOAI_ENDPOINT_SWECENTRAL"),
 			APIKey: getEnvVariable("AOAI_ENDPOINT_SWECENTRAL_API_KEY", fakeAPIKey),
 			Azure:  true,
 		},
 	}
 
-	newTestVarsFn := func(azure bool) testVars {
+	newTestVarsFn := func() testVars {
 		return testVars{
-			Batch: endpointWithModel{
-				Endpoint: ifAzure(azure, servers.SWECentral, servers.OpenAI),
-				Model:    "",
+			Assistants: endpointWithModel{
+				Endpoint: servers.USEast,
+				Model:    "gpt-4o-0806",
 			},
 			ChatCompletions: endpointWithModel{
-				Endpoint: ifAzure(azure, servers.USEast, servers.OpenAI),
-				Model:    ifAzure(azure, "gpt-4-0613", "gpt-4-0613"),
+				Endpoint: servers.USEast,
+				Model:    "gpt-4",
 			},
 			ChatCompletionsLegacyFunctions: endpointWithModel{
-				Endpoint: ifAzure(azure, servers.USEast, servers.OpenAI),
-				Model:    ifAzure(azure, "gpt-4-0613", "gpt-4-0613"),
+				Endpoint: servers.USEast,
+				Model:    "gpt-4",
 			},
 			ChatCompletionsOYD: endpointWithModel{
-				Endpoint: ifAzure(azure, servers.USEast, servers.OpenAI),
-				Model:    ifAzure(azure, "gpt-4-0613", ""), // azure only
+				Endpoint: servers.USEast,
+				Model:    "gpt-4",
 			},
 			ChatCompletionsRAI: endpointWithModel{
-				Endpoint: ifAzure(azure, servers.USEast, servers.OpenAI),
-				Model:    ifAzure(azure, "gpt-4-0613", ""), // azure only
-			},
-			ChatCompletionsStructuredOutputs: endpointWithModel{
-				Endpoint: ifAzure(azure, servers.USEast, servers.OpenAI),
-				Model:    ifAzure(azure, "gpt-4o-0806", "gpt-4o"),
+				Endpoint: servers.USEast,
+				Model:    "gpt-4",
 			},
 			ChatCompletionsWithJSONResponseFormat: endpointWithModel{
-				Endpoint: ifAzure(azure, servers.SWECentral, servers.OpenAI),
-				Model:    ifAzure(azure, "gpt-4-1106-preview", "gpt-3.5-turbo-1106"),
+				Endpoint: servers.SWECentral,
+				Model:    "gpt-4-1106-preview",
 			},
 			Completions: endpointWithModel{
-				Endpoint: ifAzure(azure, servers.USEast, servers.OpenAI),
-				Model:    ifAzure(azure, "gpt-35-turbo-instruct", "gpt-3.5-turbo-instruct"),
+				Endpoint: servers.USEast,
+				Model:    "gpt-35-turbo-instruct",
 			},
 			DallE: endpointWithModel{
-				Endpoint: ifAzure(azure, servers.SWECentral, servers.OpenAI),
-				Model:    ifAzure(azure, "dall-e-3", "dall-e-3"),
+				Endpoint: servers.SWECentral,
+				Model:    "dall-e-3",
 			},
 			Embeddings: endpointWithModel{
-				Endpoint: ifAzure(azure, servers.USEast, servers.OpenAI),
-				Model:    ifAzure(azure, "text-embedding-ada-002", "text-embedding-ada-002"),
-			},
-			Files: endpointWithModel{
-				Endpoint: ifAzure(azure, servers.USEast2, servers.OpenAI),
-				Model:    "",
+				Endpoint: servers.USEast,
+				Model:    "text-embedding-ada-002",
 			},
 			Speech: endpointWithModel{
-				Endpoint: ifAzure(azure, servers.USEast, servers.OpenAI),
-				Model:    ifAzure(azure, "tts-1", "tts-1"),
+				Endpoint: servers.SWECentral,
+				Model:    "tts",
 			},
 			TextEmbedding3Small: endpointWithModel{
-				Endpoint: ifAzure(azure, servers.USEast, servers.OpenAI),
-				Model:    ifAzure(azure, "text-embedding-3-small", "text-embedding-3-small"),
+				Endpoint: servers.USEast,
+				Model:    "text-embedding-3-small",
 			},
 			Vision: endpointWithModel{
-				Endpoint: ifAzure(azure, servers.SWECentral, servers.OpenAI),
-				Model:    ifAzure(azure, "gpt-4-vision-preview", "gpt-4-vision-preview"),
+				Endpoint: servers.SWECentral,
+				Model:    "gpt-4-vision-preview",
 			},
 			Whisper: endpointWithModel{
-				Endpoint: ifAzure(azure, servers.USNorthCentral, servers.OpenAI),
-				Model:    ifAzure(azure, "whisper", "whisper-1"),
+				Endpoint: servers.USNorthCentral,
+				Model:    "whisper",
+			},
+			Reasoning: endpointWithModel{
+				Endpoint: servers.SWECentral,
+				Model:    "o3-2025-04-16",
 			},
 			Cognitive: azopenai.AzureSearchChatExtensionConfiguration{
 				Parameters: &azopenai.AzureSearchChatExtensionParameters{
-					Endpoint:       to.Ptr(recording.GetEnvVariable("COGNITIVE_SEARCH_API_ENDPOINT", fakeCognitiveEndpoint)),
-					IndexName:      to.Ptr(recording.GetEnvVariable("COGNITIVE_SEARCH_API_INDEX", fakeCognitiveIndexName)),
+					Endpoint:       to.Ptr(getEnvVariable("COGNITIVE_SEARCH_API_ENDPOINT", fakeCognitiveEndpoint)),
+					IndexName:      to.Ptr(getEnvVariable("COGNITIVE_SEARCH_API_INDEX", fakeCognitiveIndexName)),
 					Authentication: &azopenai.OnYourDataSystemAssignedManagedIdentityAuthenticationOptions{},
 				},
 			},
 		}
 	}
 
-	azureTestVars := newTestVarsFn(true)
+	azureTestVars := newTestVarsFn()
 
 	if recording.GetRecordMode() == recording.LiveMode {
 		// these are for the examples - we don't want to mention regions or anything in them so the
@@ -203,183 +217,187 @@ var azureOpenAI, openAI = func() (testVars, testVars) {
 		}
 
 		for area, epm := range remaps {
-			os.Setenv("AOAI_"+area+"_ENDPOINT", epm.Endpoint.URL)
-			os.Setenv("AOAI_"+area+"_API_KEY", epm.Endpoint.APIKey)
-			os.Setenv("AOAI_"+area+"_MODEL", epm.Model)
+			_ = os.Setenv("AOAI_"+area+"_ENDPOINT", epm.Endpoint.URL)
+			_ = os.Setenv("AOAI_"+area+"_API_KEY", epm.Endpoint.APIKey)
+			_ = os.Setenv("AOAI_"+area+"_MODEL", epm.Model)
 		}
 	}
 
-	return azureTestVars, newTestVarsFn(false)
+	return azureTestVars
 }()
 
-type testClientOption func(opt *azopenai.ClientOptions)
+type stainlessTestClientOptions struct {
+	UseAPIKey bool
+	// UseV1Endpoint controls which endpoint style we use for the created client.
+	//    - If true, we use the /openai/v1 style endpoint. See the [api-doc] for what parts of the OpenAI are implemented.
+	//    - If false, we use the older style Azure OpenAI endpoints, which contain a deployment in the URL
+	//
+	// [api-doc]: https://github.com/MicrosoftDocs/azure-ai-docs/blob/main/articles/ai-foundry/openai/latest.md
+	UseV1Endpoint bool
+}
 
-// newTestClient creates a client enabled for HTTP recording, if needed.
-// See [newRecordingTransporter] for sanitization code.
-func newTestClient(t *testing.T, ep endpoint, options ...testClientOption) *azopenai.Client {
-	clientOptions := newClientOptionsForTest(t)
+func getRecordingOptions(t *testing.T) *recording.RecordingOptions {
+	var port int
+	val := os.Getenv("PROXY_PORT")
 
-	for _, opt := range options {
-		opt(clientOptions)
-	}
-
-	if ep.Azure {
-		cred := azcore.NewKeyCredential(ep.APIKey)
-
-		client, err := azopenai.NewClientWithKeyCredential(ep.URL, cred, clientOptions)
-		require.NoError(t, err)
-
-		return client
-	} else {
-		if ep.APIKey == "" {
-			t.Skipf("OPENAI_API_KEY not defined, skipping OpenAI public endpoint test")
+	if len(val) > 0 {
+		parsedPort, err := strconv.ParseInt(val, 10, 0)
+		if err != nil {
+			panic(fmt.Sprintf("Invalid proxy port %s", val))
 		}
-
-		cred := azcore.NewKeyCredential(ep.APIKey)
-
-		client, err := azopenai.NewClientForOpenAI(ep.URL, cred, clientOptions)
-		require.NoError(t, err)
-
-		return client
+		port = int(parsedPort)
+	} else {
+		port = os.Getpid()%10000 + 20000
+	}
+	return &recording.RecordingOptions{
+		UseHTTPS:     true,
+		ProxyPort:    int(port),
+		TestInstance: t,
 	}
 }
 
+func newStainlessTestClientWithAzureURL(t *testing.T, ep endpoint) openai.Client {
+	return newStainlessTestClientWithOptions(t, ep, &stainlessTestClientOptions{
+		UseV1Endpoint: false,
+	})
+}
+
+func newStainlessTestClientWithV1URL(t *testing.T, ep endpoint) openai.Client {
+	return newStainlessTestClientWithOptions(t, ep, &stainlessTestClientOptions{
+		UseV1Endpoint: true,
+	})
+}
+
 const fakeAzureEndpoint = "https://Sanitized.openai.azure.com/"
-const fakeOpenAIEndpoint = "https://Sanitized.openai.com/v1"
 const fakeAPIKey = "redacted"
 const fakeCognitiveEndpoint = "https://Sanitized.openai.azure.com"
 const fakeCognitiveIndexName = "index"
 
-type MultipartRecordingPolicy struct {
-}
+func configureTestProxy(options recording.RecordingOptions) error {
+	if err := recording.SetDefaultMatcher(nil, &recording.SetDefaultMatcherOptions{
+		RecordingOptions: options,
+		ExcludedHeaders: []string{
+			"X-Stainless-Arch",
+			"X-Stainless-Lang",
+			"X-Stainless-Os",
+			"X-Stainless-Package-Version",
+			"X-Stainless-Retry-Count",
+			"X-Stainless-Runtime",
+			"X-Stainless-Runtime-Version",
+		},
+	}); err != nil {
+		return err
+	}
 
-func (mrp MultipartRecordingPolicy) Do(req *http.Request) (*http.Response, error) {
-	return nil, nil
+	if err := recording.AddHeaderRegexSanitizer("Api-Key", fakeAPIKey, "", &options); err != nil {
+		return err
+	}
+
+	if err := recording.AddHeaderRegexSanitizer("User-Agent", "fake-user-agent", "", &options); err != nil {
+		return err
+	}
+
+	if err := recording.AddURISanitizer("/openai/operations/images/00000000-AAAA-BBBB-CCCC-DDDDDDDDDDDD", "/openai/operations/images/[A-Za-z-0-9]+", &options); err != nil {
+		return err
+	}
+
+	if err := recording.AddGeneralRegexSanitizer(
+		fmt.Sprintf(`"endpoint": "%s"`, fakeCognitiveEndpoint),
+		`"endpoint":\s*"[^"]+"`, &options); err != nil {
+		return err
+	}
+
+	if err := recording.AddGeneralRegexSanitizer(
+		fmt.Sprintf(`"index_name": "%s"`, fakeCognitiveIndexName),
+		`"index_name":\s*"[^"]+"`, &options); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // newRecordingTransporter sets up our recording policy to sanitize endpoints and any parts of the response that might
 // involve UUIDs that would make the response/request inconsistent.
-func newRecordingTransporter(t *testing.T) policy.Transporter {
-	transport, err := recording.NewRecordingHTTPClient(t, nil)
+func newRecordingTransporter(t *testing.T) *recording.RecordingHTTPClient {
+	defaultOptions := getRecordingOptions(t)
+	t.Logf("Using test proxy on port %d", defaultOptions.ProxyPort)
+
+	transport, err := recording.NewRecordingHTTPClient(t, defaultOptions)
 	require.NoError(t, err)
 
-	err = recording.Start(t, RecordingDirectory, nil)
-	require.NoError(t, err)
-
-	if recording.GetRecordMode() != recording.PlaybackMode {
-		err = recording.AddHeaderRegexSanitizer("Api-Key", fakeAPIKey, "", nil)
+	// if we're creating more than one client in a test (for instance, TestClient_GetAudioSpeech!)
+	// then we don't want to start or stop recording again.
+	if recording.GetRecordingId(t) == "" {
+		err = recording.Start(t, RecordingDirectory, defaultOptions)
 		require.NoError(t, err)
 
-		err = recording.AddHeaderRegexSanitizer("User-Agent", "fake-user-agent", "", nil)
-		require.NoError(t, err)
-
-		err = recording.AddURISanitizer("/openai/operations/images/00000000-AAAA-BBBB-CCCC-DDDDDDDDDDDD", "/openai/operations/images/[A-Za-z-0-9]+", nil)
-		require.NoError(t, err)
-
-		err = recording.AddGeneralRegexSanitizer(
-			fmt.Sprintf(`"endpoint": "%s"`, fakeCognitiveEndpoint),
-			fmt.Sprintf(`"endpoint":\s*"%s"`, *azureOpenAI.Cognitive.Parameters.Endpoint), nil)
-		require.NoError(t, err)
-
-		err = recording.AddGeneralRegexSanitizer(
-			fmt.Sprintf(`"index_name": "%s"`, fakeCognitiveIndexName),
-			fmt.Sprintf(`"index_name":\s*"%s"`, *azureOpenAI.Cognitive.Parameters.IndexName), nil)
-		require.NoError(t, err)
+		t.Cleanup(func() {
+			err := recording.Stop(t, defaultOptions)
+			require.NoError(t, err)
+		})
 	}
-
-	t.Cleanup(func() {
-		err := recording.Stop(t, nil)
-		require.NoError(t, err)
-	})
 
 	return transport
 }
 
-// newClientOptionsForTest creates options that enable a few optional things:
-//   - If we're recording then it injects the recording transporter
-//   - If `SSLKEYLOGFILE` is set in the environment it'll automatically setup
-//     the HTTP policy so it writes the keylog for that client to a file. You can
-//     use this with WireShark to decrypt and view a network trace.
-func newClientOptionsForTest(t *testing.T) *azopenai.ClientOptions {
-	co := &azopenai.ClientOptions{}
+type recordingRoundTripper struct {
+	transport policy.Transporter
+}
 
-	// Useful when debugging responses.
-	co.Logging.IncludeBody = true
+func (d *recordingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return d.transport.Do(req)
+}
 
+func newStainlessTestClientWithOptions(t *testing.T, ep endpoint, options *stainlessTestClientOptions) openai.Client {
+	if options == nil {
+		options = &stainlessTestClientOptions{}
+	}
+
+	var client *http.Client
 	if recording.GetRecordMode() == recording.LiveMode {
-		keyLogPath := os.Getenv("SSLKEYLOGFILE")
-
-		if keyLogPath == "" {
-			return co
-		}
-
-		keyLogWriter, err := os.OpenFile(keyLogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0777)
-		require.NoError(t, err)
-
-		t.Cleanup(func() {
-			_ = keyLogWriter.Close()
-		})
-
-		tp := http.DefaultTransport.(*http.Transport).Clone()
-		tp.TLSClientConfig = &tls.Config{
-			KeyLogWriter: keyLogWriter,
-		}
-
-		co.Transport = &http.Client{Transport: tp}
+		client = &http.Client{}
 	} else {
-		co.PerRetryPolicies = append(co.PerRetryPolicies, &mimeTypeRecordingPolicy{})
-		co.Transport = newRecordingTransporter(t)
+		transport := newRecordingTransporter(t)
+		client = &http.Client{
+			Transport: &recordingRoundTripper{transport: transport},
+		}
 	}
 
-	return co
-}
+	endpointOption := azure.WithEndpoint(ep.URL, apiVersion)
 
-// newBogusAzureOpenAIClient creates a client that uses an invalid key, which will cause Azure OpenAI to return
-// a failure.
-func newBogusAzureOpenAIClient(t *testing.T) *azopenai.Client {
-	cred := azcore.NewKeyCredential("bogus-api-key")
+	if options.UseV1Endpoint {
+		endpointOption = option.WithBaseURL(ep.URL + "openai/v1")
+	}
 
-	client, err := azopenai.NewClientWithKeyCredential(azureOpenAI.Completions.Endpoint.URL, cred, newClientOptionsForTest(t))
+	if options.UseAPIKey {
+		return openai.NewClient(
+			endpointOption,
+			azure.WithAPIKey(ep.APIKey),
+			option.WithHTTPClient(client),
+		)
+	}
+
+	tokenCredential, err := credential.New(nil)
 	require.NoError(t, err)
 
-	return client
+	return openai.NewClient(
+		endpointOption,
+		azure.WithTokenCredential(tokenCredential),
+		option.WithHTTPClient(client),
+	)
 }
 
-// newBogusOpenAIClient creates a client that uses an invalid key, which will cause OpenAI to return
-// a failure.
-func newBogusOpenAIClient(t *testing.T) *azopenai.Client {
-	cred := azcore.NewKeyCredential("bogus-api-key")
-
-	client, err := azopenai.NewClientForOpenAI(openAI.Completions.Endpoint.URL, cred, newClientOptionsForTest(t))
+func newStainlessChatCompletionService(t *testing.T, ep endpoint) openai.ChatCompletionService {
+	tokenCredential, err := credential.New(nil)
 	require.NoError(t, err)
-	return client
-}
 
-func assertResponseIsError(t *testing.T, err error) {
-	t.Helper()
+	recordingHTTPClient := newRecordingTransporter(t)
 
-	var respErr *azcore.ResponseError
-	require.ErrorAs(t, err, &respErr)
-
-	// we sometimes get rate limited but (for this kind of test) it's actually okay
-	require.Truef(t, respErr.StatusCode == http.StatusUnauthorized || respErr.StatusCode == http.StatusTooManyRequests, "An acceptable error comes back (actual: %d)", respErr.StatusCode)
-}
-
-func getEndpoint(ev string, azure bool) string {
-	fakeEP := fakeAzureEndpoint
-
-	if !azure {
-		fakeEP = fakeOpenAIEndpoint
-	}
-
-	v := getEnvVariable(ev, fakeEP)
-
-	if !strings.HasSuffix(v, "/") {
-		// (this just makes recording replacement easier)
-		v += "/"
-	}
-
-	return v
+	return openai.NewChatCompletionService(
+		azure.WithEndpoint(ep.URL, apiVersion),
+		azure.WithTokenCredential(tokenCredential),
+		option.WithHTTPClient(recordingHTTPClient),
+	)
 }
 
 func skipNowIfThrottled(t *testing.T, err error) {
@@ -388,78 +406,31 @@ func skipNowIfThrottled(t *testing.T, err error) {
 	}
 }
 
-type mimeTypeRecordingPolicy struct{}
-
-// Do changes out the boundary for a multipart message. This makes it simpler to write
-// recordings.
-func (mrp *mimeTypeRecordingPolicy) Do(req *policy.Request) (*http.Response, error) {
-	if recording.GetRecordMode() == recording.LiveMode {
-		// this is strictly to make the IDs in the multipart body stable for test recordings.
-		return req.Next()
-	}
-
-	// we'll fix up the multipart to make it more predictable for test recordings.
-	//    Content-Type: multipart/form-data; boundary=787c880ce3dd11f9b6384d625c399c8490fc8989ceb6b7d208ec7426c12e
-	mediaType, params, err := mime.ParseMediaType(req.Raw().Header[http.CanonicalHeaderKey("Content-type")][0])
-
-	if err != nil || mediaType != "multipart/form-data" {
-		// we'll just assume our policy doesn't apply here.
-		return req.Next()
-	}
-
-	origBoundary := params["boundary"]
-
-	if origBoundary == "" {
-		return nil, errors.New("Invalid use of this policy - no boundary was passed as part of the multipart mime type")
-	}
-
-	params["boundary"] = "boundary-for-recordings"
-
-	// now let's update the body itself - we'll just do a simple string replacement. The entire purpose of the boundary string is to provide a
-	// separator, which is distinct from the content.
-	body := req.Body()
-	defer body.Close()
-
-	origBody, err := io.ReadAll(body)
-
-	if err != nil {
-		return nil, err
-	}
-
-	newBody := bytes.ReplaceAll(origBody, []byte(origBoundary), []byte("boundary-for-recordings"))
-
-	if err := req.SetBody(streaming.NopCloser(bytes.NewReader(newBody)), mime.FormatMediaType(mediaType, params)); err != nil {
-		return nil, err
-	}
-
-	return req.Next()
-}
-
 // customRequireNoError checks the error but allows throttling errors to account for resources that are
 // constrained.
-func customRequireNoError(t *testing.T, err error, throttlingAllowed bool) {
+func customRequireNoError(t *testing.T, err error) {
+	t.Helper()
+
 	if err == nil {
 		return
 	}
 
-	if throttlingAllowed {
-		var respErr *azcore.ResponseError
+	var respErr *openai.Error
 
-		switch {
-		case errors.As(err, &respErr) && respErr.StatusCode == http.StatusTooManyRequests:
-			t.Skip("Skipping test because of throttling (http.StatusTooManyRequests)")
-			return
-		// If you're using OYD, then the response error (from Azure OpenAI) will be a 400, but the underlying text will mention
-		// that it's 429'd.
-		// 	  "code": 400,
-		// 	  "message": "Server responded with status 429. Error message: {'error': {'code': '429', 'message': 'Rate limit is exceeded. Try again in 1 seconds.'}}"
-		case errors.As(err, &respErr) && respErr.StatusCode == http.StatusBadRequest && strings.Contains(err.Error(), "Rate limit is exceeded"):
-			t.Skip("Skipping test because of throttling in OYD resource")
-			return
-		case errors.Is(err, context.DeadlineExceeded):
-			t.Skip("Skipping test because of throttling (DeadlineExceeded)")
-			return
-		}
+	switch {
+	case errors.As(err, &respErr) && respErr.StatusCode == http.StatusTooManyRequests:
+		t.Skip("Skipping test because of throttling (http.StatusTooManyRequests)")
+		return
+	// If you're using OYD, then the response error (from Azure OpenAI) will be a 400, but the underlying text will mention
+	// that it's 429'd.
+	// 	  "code": 400,
+	// 	  "message": "Server responded with status 429. Error message: {'error': {'code': '429', 'message': 'Rate limit is exceeded. Try again in 1 seconds.'}}"
+	case errors.As(err, &respErr) && respErr.StatusCode == http.StatusBadRequest && strings.Contains(err.Error(), "Rate limit is exceeded"):
+		t.Skip("Skipping test because of throttling in OYD resource")
+		return
+	case errors.Is(err, context.DeadlineExceeded):
+		t.Skip("Skipping test because of throttling (DeadlineExceeded)")
+		return
 	}
 
 	require.NoError(t, err)

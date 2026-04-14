@@ -47,10 +47,19 @@ type Const struct {
 	Value string `json:"value"`
 }
 
+// Param represents a function parameter with its name and type.
+type Param struct {
+	// Name is the parameter name, may be empty for unnamed parameters
+	Name string `json:"name,omitempty"`
+
+	// Type is the parameter type
+	Type string `json:"type"`
+}
+
 // Func contains parameter and return types of a function/method.
 type Func struct {
-	// a comma-delimited list of the param types
-	Params *string `json:"params,omitempty"`
+	// Params is the list of function parameters
+	Params []Param `json:"params,omitempty"`
 
 	// a comma-delimited list of the return types
 	Returns *string `json:"returns,omitempty"`
@@ -110,7 +119,14 @@ func (c *Content) addConst(pkg Package, g *ast.GenDecl) {
 			switch x := vs.Type.(type) {
 			case *ast.Ident:
 				co.Type = x.Name
-				v = vs.Values[0].(*ast.BasicLit).Value
+				switch vs.Values[0].(type) {
+				case *ast.Ident:
+					v = vs.Values[0].(*ast.Ident).Name
+				case *ast.BasicLit:
+					v = vs.Values[0].(*ast.BasicLit).Value
+				default:
+					panic(fmt.Sprintf("wrong type %T", vs.Values[0]))
+				}
 			case *ast.SelectorExpr:
 				co.Type = x.Sel.Name
 				v = vs.Values[0].(*ast.BasicLit).Value

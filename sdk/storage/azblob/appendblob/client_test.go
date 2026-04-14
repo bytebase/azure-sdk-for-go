@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
@@ -10,7 +7,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"hash/crc64"
 	"io"
@@ -46,12 +45,13 @@ import (
 func Test(t *testing.T) {
 	recordMode := recording.GetRecordMode()
 	t.Logf("Running appendblob Tests in %s mode\n", recordMode)
-	if recordMode == recording.LiveMode {
+	switch recordMode {
+	case recording.LiveMode:
 		suite.Run(t, &AppendBlobRecordedTestsSuite{})
 		suite.Run(t, &AppendBlobUnrecordedTestsSuite{})
-	} else if recordMode == recording.PlaybackMode {
+	case recording.PlaybackMode:
 		suite.Run(t, &AppendBlobRecordedTestsSuite{})
-	} else if recordMode == recording.RecordingMode {
+	case recording.RecordingMode:
 		suite.Run(t, &AppendBlobRecordedTestsSuite{})
 	}
 }
@@ -480,6 +480,66 @@ func (s *AppendBlobUnrecordedTestsSuite) TestAppendBlockFromURL() {
 	_require.NotNil(appendFromURLResp.Version)
 	_require.NotNil(appendFromURLResp.Date)
 	_require.Equal(appendFromURLResp.Date.IsZero(), false)
+
+	// Check data integrity through downloading.
+	destBuffer := make([]byte, 4*1024)
+	downloadBufferOptions := blob.DownloadBufferOptions{Range: blob.HTTPRange{Offset: 0, Count: 4096}}
+	_, err = destBlob.DownloadBuffer(context.Background(), destBuffer, &downloadBufferOptions)
+	_require.NoError(err)
+	_require.Equal(destBuffer, sourceData)
+}
+
+func (s *AppendBlobUnrecordedTestsSuite) TestAppendBlockFromURWithLRequestIntentHeader() {
+	_require := require.New(s.T())
+	testName := s.T().Name()
+	svcClient, err := testcommon.GetServiceClient(s.T(), testcommon.TestAccountDefault, nil)
+	_require.NoError(err)
+	containerName := testcommon.GenerateContainerName(testName)
+	containerClient := testcommon.CreateNewContainer(context.Background(), _require, containerName, svcClient)
+	defer testcommon.DeleteContainer(context.Background(), _require, containerClient)
+
+	contentSize := 4 * 1024 // 4KB
+	r, sourceData := testcommon.GetDataAndReader(testName, contentSize)
+	contentMD5 := md5.Sum(sourceData)
+	srcBlob := containerClient.NewAppendBlobClient(testcommon.GenerateBlobName("appendsrc"))
+	destBlob := containerClient.NewAppendBlobClient(testcommon.GenerateBlobName("appenddest"))
+
+	// Prepare source abClient for copy.
+	_, err = srcBlob.Create(context.Background(), nil)
+	_require.NoError(err)
+
+	_, err = srcBlob.AppendBlock(context.Background(), streaming.NopCloser(r), nil)
+	_require.NoError(err)
+
+	// Get source abClient URL with SAS for AppendBlockFromURL.
+	srcBlobParts, _ := blob.ParseURL(srcBlob.URL())
+
+	keyCredential, err := testcommon.GetGenericSharedKeyCredential(testcommon.TestAccountDefault)
+	_require.NoError(err)
+	perms := sas.BlobPermissions{Read: true}
+
+	srcBlobParts.SAS, err = sas.BlobSignatureValues{
+		Protocol:      sas.ProtocolHTTPS,                    // Users MUST use HTTPS (not HTTP)
+		ExpiryTime:    time.Now().UTC().Add(48 * time.Hour), // 48-hours before expiration
+		ContainerName: srcBlobParts.ContainerName,
+		BlobName:      srcBlobParts.BlobName,
+		Permissions:   perms.String(),
+	}.SignWithSharedKey(keyCredential)
+	_require.NoError(err)
+
+	srcBlobURLWithSAS := srcBlobParts.String()
+
+	// Append block from URL.
+	_, err = destBlob.Create(context.Background(), nil)
+	_require.NoError(err)
+	requestIntent := blob.FileRequestIntentTypeBackup
+	appendFromURLResp, err := destBlob.AppendBlockFromURL(context.Background(), srcBlobURLWithSAS, &appendblob.AppendBlockFromURLOptions{
+		SourceContentValidation: blob.SourceContentValidationTypeMD5(contentMD5[:]),
+		FileRequestIntent:       &requestIntent,
+	})
+
+	_require.NoError(err)
+	_require.Equal(*appendFromURLResp.BlobAppendOffset, "0")
 
 	// Check data integrity through downloading.
 	destBuffer := make([]byte, 4*1024)
@@ -1257,6 +1317,10 @@ func (s *AppendBlobRecordedTestsSuite) TestBlobCreateAppendIfMatchTrue() {
 }
 
 func (s *AppendBlobRecordedTestsSuite) TestAppendSetImmutabilityPolicy() {
+	if recording.GetRecordMode() != recording.PlaybackMode {
+		s.T().Skip("This test only runs in playback mode")
+	}
+
 	_require := require.New(s.T())
 	testName := s.T().Name()
 	svcClient, err := testcommon.GetServiceClient(s.T(), testcommon.TestAccountImmutable, nil)
@@ -1295,6 +1359,10 @@ func (s *AppendBlobRecordedTestsSuite) TestAppendSetImmutabilityPolicy() {
 }
 
 func (s *AppendBlobRecordedTestsSuite) TestAppendDeleteImmutabilityPolicy() {
+	if recording.GetRecordMode() != recording.PlaybackMode {
+		s.T().Skip("This test only runs in playback mode")
+	}
+
 	_require := require.New(s.T())
 	testName := s.T().Name()
 	svcClient, err := testcommon.GetServiceClient(s.T(), testcommon.TestAccountImmutable, nil)
@@ -1328,6 +1396,10 @@ func (s *AppendBlobRecordedTestsSuite) TestAppendDeleteImmutabilityPolicy() {
 }
 
 func (s *AppendBlobRecordedTestsSuite) TestAppendSetLegalHold() {
+	if recording.GetRecordMode() != recording.PlaybackMode {
+		s.T().Skip("This test only runs in playback mode")
+	}
+
 	_require := require.New(s.T())
 	testName := s.T().Name()
 	svcClient, err := testcommon.GetServiceClient(s.T(), testcommon.TestAccountImmutable, nil)
@@ -2143,8 +2215,8 @@ func (s *AppendBlobUnrecordedTestsSuite) TestCreateAppendBlobWithTags() {
 	where := "\"GO \"='.Net'"
 	lResp, err := svcClient.FilterBlobs(context.Background(), where, nil)
 	_require.NoError(err)
-	_require.Len(lResp.FilterBlobSegment.Blobs[0].Tags.BlobTagSet, 1)
-	_require.Equal(lResp.FilterBlobSegment.Blobs[0].Tags.BlobTagSet[0], blobTagsSet[2])
+	_require.Len(lResp.Blobs[0].Tags.BlobTagSet, 1)
+	_require.Equal(lResp.Blobs[0].Tags.BlobTagSet[0], blobTagsSet[2])
 }
 
 func (s *AppendBlobRecordedTestsSuite) TestAppendBlobGetPropertiesUsingVID() {
@@ -3647,4 +3719,94 @@ func (s *AppendBlobRecordedTestsSuite) TestAppendBlobClientCustomAudience() {
 
 	_, err = abClientAudience.GetProperties(context.Background(), nil)
 	_require.NoError(err)
+}
+
+func (s *AppendBlobUnrecordedTestsSuite) TestUserDelegationSASWithDelegatedUserObjectId() {
+	_require := require.New(s.T())
+	testName := s.T().Name()
+
+	accountName, _ := testcommon.GetGenericAccountInfo(testcommon.TestAccountDefault)
+	_require.Greater(len(accountName), 0)
+
+	cred, err := testcommon.GetGenericTokenCredential()
+	_require.NoError(err)
+
+	svcClient, err := service.NewClient("https://"+accountName+".blob.core.windows.net/", cred, nil)
+	_require.NoError(err)
+
+	containerName := testcommon.GenerateContainerName(testName)
+	cntClientTokenCred := testcommon.CreateNewContainer(context.Background(), _require, containerName, svcClient)
+	defer testcommon.DeleteContainer(context.Background(), _require, cntClientTokenCred)
+
+	blobName := testcommon.GenerateBlobName("append-sduoid")
+	blobClient := cntClientTokenCred.NewAppendBlobClient(blobName)
+
+	// Set current and past time and create key
+	now := time.Now().UTC().Add(-10 * time.Second)
+	expiry := now.Add(30 * time.Minute)
+	info := service.KeyInfo{
+		Start:  to.Ptr(now.UTC().Format(sas.TimeFormat)),
+		Expiry: to.Ptr(expiry.UTC().Format(sas.TimeFormat)),
+	}
+
+	udc, err := svcClient.GetUserDelegationCredential(context.Background(), info, nil)
+	_require.NoError(err)
+
+	permissions := sas.BlobPermissions{Read: true, Create: true, Write: true}
+
+	blobParts, _ := blob.ParseURL(blobClient.URL())
+
+	// Get oid from the same bearer token
+	expectedOid, err := getOIDFromCredential(context.Background(), cred)
+	_require.NoError(err)
+	_require.NotEmpty(expectedOid)
+	blobParts.SAS, err = sas.BlobSignatureValues{
+		Protocol:                    sas.ProtocolHTTPS,
+		StartTime:                   time.Now().UTC().Add(time.Second * -10),
+		ExpiryTime:                  time.Now().UTC().Add(15 * time.Minute),
+		Permissions:                 permissions.String(),
+		ContainerName:               containerName,
+		SignedDelegatedUserObjectID: expectedOid,
+	}.SignWithUserDelegation(udc)
+	_require.NoError(err)
+
+	// Round-trip check: SAS should contain sduoid=expectedOid
+	qp := blobParts.SAS
+	_require.Equal(expectedOid, qp.SignedDelegatedUserObjectID())
+
+	blobURLWithSAS := blobParts.String()
+	// Use the same AAD credential so the bearer token is presented along with the SAS
+	blobClient, err = appendblob.NewClient(blobURLWithSAS, cred, nil)
+	_require.NoError(err)
+
+	// Try a basic create, should succeed in same-tenant
+	createResp, err := blobClient.Create(context.Background(), nil)
+	_require.NoError(err)
+	_require.NotNil(createResp)
+}
+
+// getOIDFromCredential obtains an access token using the provided credential and returns the oid claim.
+func getOIDFromCredential(ctx context.Context, cred azcore.TokenCredential) (string, error) {
+	tok, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{"https://storage.azure.com/.default"}})
+	if err != nil {
+		return "", err
+	}
+	parts := strings.Split(tok.Token, ".")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("unexpected JWT format")
+	}
+	payloadJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", err
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payloadJSON, &claims); err != nil {
+		return "", err
+	}
+	oidAny := claims["oid"]
+	oid, _ := oidAny.(string)
+	if oid == "" {
+		return "", fmt.Errorf("empty oid claim")
+	}
+	return oid, nil
 }

@@ -1,6 +1,3 @@
-//go:build go1.18
-// +build go1.18
-
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
@@ -65,10 +62,10 @@ func NewClient(fileURL string, cred azcore.TokenCredential, options *ClientOptio
 		options = &ClientOptions{}
 	}
 	perCallPolicies := []policy.Policy{shared.NewIncludeBlobResponsePolicy()}
-	if options.ClientOptions.PerCallPolicies != nil {
-		perCallPolicies = append(perCallPolicies, options.ClientOptions.PerCallPolicies...)
+	if options.PerCallPolicies != nil {
+		perCallPolicies = append(perCallPolicies, options.PerCallPolicies...)
 	}
-	options.ClientOptions.PerCallPolicies = perCallPolicies
+	options.PerCallPolicies = perCallPolicies
 	blobClientOpts := blockblob.ClientOptions{
 		ClientOptions: options.ClientOptions,
 	}
@@ -98,10 +95,10 @@ func NewClientWithNoCredential(fileURL string, options *ClientOptions) (*Client,
 		options = &ClientOptions{}
 	}
 	perCallPolicies := []policy.Policy{shared.NewIncludeBlobResponsePolicy()}
-	if options.ClientOptions.PerCallPolicies != nil {
-		perCallPolicies = append(perCallPolicies, options.ClientOptions.PerCallPolicies...)
+	if options.PerCallPolicies != nil {
+		perCallPolicies = append(perCallPolicies, options.PerCallPolicies...)
 	}
-	options.ClientOptions.PerCallPolicies = perCallPolicies
+	options.PerCallPolicies = perCallPolicies
 	blobClientOpts := blockblob.ClientOptions{
 		ClientOptions: options.ClientOptions,
 	}
@@ -134,10 +131,10 @@ func NewClientWithSharedKeyCredential(fileURL string, cred *SharedKeyCredential,
 		options = &ClientOptions{}
 	}
 	perCallPolicies := []policy.Policy{shared.NewIncludeBlobResponsePolicy()}
-	if options.ClientOptions.PerCallPolicies != nil {
-		perCallPolicies = append(perCallPolicies, options.ClientOptions.PerCallPolicies...)
+	if options.PerCallPolicies != nil {
+		perCallPolicies = append(perCallPolicies, options.PerCallPolicies...)
 	}
-	options.ClientOptions.PerCallPolicies = perCallPolicies
+	options.PerCallPolicies = perCallPolicies
 	blobClientOpts := blockblob.ClientOptions{
 		ClientOptions: options.ClientOptions,
 	}
@@ -234,8 +231,11 @@ func (f *Client) GetProperties(ctx context.Context, options *GetPropertiesOption
 	var respFromCtx *http.Response
 	ctxWithResp := shared.WithCaptureBlobResponse(ctx, &respFromCtx)
 	resp, err := f.blobClient().GetProperties(ctxWithResp, opts)
+	if err != nil {
+		err = exported.ConvertToDFSError(err)
+		return GetPropertiesResponse{}, err
+	}
 	newResp := path.FormatGetPropertiesResponse(&resp, respFromCtx)
-	err = exported.ConvertToDFSError(err)
 	return newResp, err
 }
 
@@ -555,6 +555,9 @@ func (f *Client) DownloadStream(ctx context.Context, o *DownloadStreamOptions) (
 	var respFromCtx *http.Response
 	ctxWithResp := shared.WithCaptureBlobResponse(ctx, &respFromCtx)
 	resp, err := f.blobClient().DownloadStream(ctxWithResp, opts)
+	if err != nil {
+		return DownloadStreamResponse{}, exported.ConvertToDFSError(err)
+	}
 	newResp := FormatDownloadStreamResponse(&resp, respFromCtx)
 	fullResp := DownloadStreamResponse{
 		client:           f,
@@ -564,7 +567,7 @@ func (f *Client) DownloadStream(ctx context.Context, o *DownloadStreamOptions) (
 		cpkScope:         o.CPKScopeInfo,
 	}
 
-	return fullResp, exported.ConvertToDFSError(err)
+	return fullResp, nil
 }
 
 // DownloadBuffer downloads an Azure file to a buffer with parallel.

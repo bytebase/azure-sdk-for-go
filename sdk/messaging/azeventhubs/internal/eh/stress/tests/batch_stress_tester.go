@@ -13,7 +13,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2"
 )
 
 /*
@@ -31,8 +31,6 @@ func getBatchTesterParams(args []string) (batchTesterParams, error) {
 
 	fs := flag.NewFlagSet("batch", flag.ContinueOnError)
 
-	var batchDurationStr string
-
 	// NOTE: these values aren't particularly special, but they do try to create a reasonable default
 	// test just to make sure everything is working.
 	//
@@ -40,7 +38,7 @@ func getBatchTesterParams(args []string) (batchTesterParams, error) {
 	// testing.
 	fs.IntVar(&params.numToSend, "send", 1000000, "Number of events to send.")
 	fs.IntVar(&params.batchSize, "receive", 1000, "Size to request each time we call ReceiveEvents(). Higher batch sizes will require higher amounts of memory for this test.")
-	fs.StringVar(&batchDurationStr, "timeout", "60s", "Time to wait for each batch (ie: 1m, 30s, etc..)")
+	fs.DurationVar(&params.batchDuration, "timeout", time.Minute, "Time to wait for each batch (ie: 1m, 30s, etc..)")
 	prefetch := fs.Int("prefetch", 0, "Number of events to set for the prefetch. Negative numbers disable prefetch altogether. 0 uses the default for the package.")
 
 	fs.Int64Var(&params.rounds, "rounds", 100, "Number of rounds to run with these parameters. -1 means math.MaxInt64")
@@ -63,14 +61,6 @@ func getBatchTesterParams(args []string) (batchTesterParams, error) {
 		params.rounds = math.MaxInt64
 	}
 
-	batchDuration, err := time.ParseDuration(batchDurationStr)
-
-	if err != nil {
-		fs.PrintDefaults()
-		return batchTesterParams{}, err
-	}
-
-	params.batchDuration = batchDuration
 	params.sleepAfterFn = sleepAfterFn
 
 	return params, nil
@@ -126,7 +116,7 @@ func BatchStressTester(ctx context.Context) error {
 	closeOrPanic(producerClient)
 
 	if err != nil {
-		return fmt.Errorf("Failed to send events to partition %s: %s", params.partitionID, err)
+		return fmt.Errorf("failed to send events to partition %s: %s", params.partitionID, err)
 	}
 
 	log.Printf("Starting receive tests for partition %s", params.partitionID)
@@ -142,12 +132,12 @@ func BatchStressTester(ctx context.Context) error {
 
 	// warm up the connection
 	if _, err := consumerClient.GetEventHubProperties(ctx, nil); err != nil {
-		return fmt.Errorf("Failed to warm up connection for consumer client: %s", err.Error())
+		return fmt.Errorf("failed to warm up connection for consumer client: %s", err.Error())
 	}
 
 	for i := int64(0); i < params.rounds; i++ {
 		if err := consumeForBatchTester(context.Background(), i, consumerClient, sp, params, testData); err != nil {
-			return fmt.Errorf("Failed running round %d: %s", i, err.Error())
+			return fmt.Errorf("failed running round %d: %s", i, err.Error())
 		}
 	}
 
@@ -186,39 +176,38 @@ func consumeForBatchTester(ctx context.Context, round int64, cc *azeventhubs.Con
 	numCancels := 0
 	const cancelLimit = 5
 
-	analyzeErrorFn := func(err error) error {
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-				// track these, we can use it as a proxy for "network was slow" or similar.
-				testData.TC.TrackMetric(MetricDeadlineExceeded, float64(1), nil)
-				numCancels++
-
-				if numCancels >= cancelLimit {
-					return fmt.Errorf("cancellation errors were received %d times in a row. Stopping test as this indicates a problem", numCancels)
-				}
-			} else {
-				return fmt.Errorf("received %d/%d, but then got err: %w", total, params.numToSend, err)
-			}
-		}
-
-		return nil
-	}
-
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), params.batchDuration)
+
+		// TODO: got 5 cancels in a row - are we receiving longer than we need to (ie, we legitimately don't have any messages left?)
 		events, err := partClient.ReceiveEvents(ctx, params.batchSize, nil)
 		cancel()
 
-		if err := analyzeErrorFn(err); err != nil {
-			panic(err)
+		switch {
+		case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
+			log.Printf("[r:%d/%d,p:%s] ReceiveEvents timed out, asking for %d events, waiting for %s, have %d so far", round, params.rounds, params.partitionID, params.batchSize, params.batchDuration, total)
+
+			// track these, we can use it as a proxy for "network was slow" or similar.
+			testData.TC.TrackMetricWithProps(MetricDeadlineExceeded, float64(1), nil)
+			numCancels++
+
+			if numCancels >= cancelLimit {
+				panic(fmt.Errorf("cancellation errors were received %d times in a row. Stopping test as this indicates a problem", numCancels))
+			}
+		case err != nil:
+			panic(fmt.Errorf("received %d/%d, but then got err: %w", total, params.numToSend, err))
+		default:
+			numCancels = 0
 		}
 
-		testData.TC.TrackMetric(MetricReceived, float64(len(events)), nil)
+		testData.TC.TrackMetricWithProps(MetricNameReceived, float64(len(events)), nil)
 		total += len(events)
 
 		if total >= params.numToSend {
 			log.Printf("[r:%d/%d,p:%s] All messages received (%d/%d)", round, params.rounds, params.partitionID, total, params.numToSend)
 			break
+		} else {
+			log.Printf("[r:%d/%d,p:%s] Message status: (%d/%d)", round, params.rounds, params.partitionID, total, params.numToSend)
 		}
 	}
 

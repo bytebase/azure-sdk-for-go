@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/checkpoints"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/test"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2/checkpoints"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2/internal/test"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 )
 
@@ -169,7 +169,7 @@ func (inf *processorStressTest) Run(ctx context.Context) error {
 		return err
 	}
 
-	defer producerClient.Close(context.Background())
+	defer func() { _ = producerClient.Close(context.Background()) }()
 
 	for round := int64(0); round < inf.rounds; round++ {
 		log.Printf("===== [BEGIN] Round %d/%d ===== ", round, inf.rounds)
@@ -266,7 +266,7 @@ func (inf *processorStressTest) receiveForever(ctx context.Context, partClient *
 		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 			// this is fine - it just means we ran out of time waiting for events.
 			// This'll happen periodically in between tests when there are no messages.
-			inf.TC.TrackMetric(MetricDeadlineExceeded, 1.0, map[string]string{
+			inf.TC.TrackMetricWithProps(MetricDeadlineExceeded, 1.0, map[string]string{
 				"PartitionID": partClient.PartitionID(),
 			})
 			continue
@@ -275,7 +275,7 @@ func (inf *processorStressTest) receiveForever(ctx context.Context, partClient *
 		if ehErr := (*azeventhubs.Error)(nil); errors.As(err, &ehErr) && ehErr.Code == azeventhubs.ErrorCodeOwnershipLost {
 			// this can happen as partitions are rebalanced between processors - Event Hubs
 			// actually detaches us with this error.
-			inf.TC.TrackMetric(MetricOwnershipLost, 1.0, map[string]string{
+			inf.TC.TrackMetricWithProps(MetricNameOwnershipLost, 1.0, map[string]string{
 				"PartitionID": partClient.PartitionID(),
 			})
 			logger("Ownership lost")
@@ -296,7 +296,7 @@ func (inf *processorStressTest) receiveForever(ctx context.Context, partClient *
 				panic(err)
 			}
 
-			inf.TC.TrackMetric(MetricReceived, float64(len(events)), map[string]string{
+			inf.TC.TrackMetricWithProps(MetricNameReceived, float64(len(events)), map[string]string{
 				"PartitionID": partClient.PartitionID(),
 			})
 		}
@@ -327,7 +327,7 @@ func (inf *processorStressTest) report(ctx context.Context, header string, endPo
 
 	stats := strings.Builder{}
 
-	stats.WriteString(fmt.Sprintf("=== Stats (%s) ===\n", header))
+	fmt.Fprintf(&stats, "=== Stats (%s) ===\n", header)
 
 	done := 0
 
@@ -355,7 +355,7 @@ func (inf *processorStressTest) report(ctx context.Context, header string, endPo
 			done++
 		}
 
-		stats.WriteString(fmt.Sprintf("  [%s] o:%s (last: %s), remaining: %d/%d\n", endProps.PartitionID, owner, lastUpdate, remaining, inf.eventsPerRound))
+		fmt.Fprintf(&stats, "  [%s] o:%s (last: %s), remaining: %d/%d\n", endProps.PartitionID, owner, lastUpdate, remaining, inf.eventsPerRound)
 	}
 
 	return stats.String(), done == len(endPositions), nil
