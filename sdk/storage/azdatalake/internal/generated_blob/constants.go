@@ -1,9 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
-package azappconfig
+package generated_blob
 
-const (
-	moduleName    = "github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
-	moduleVersion = "v2.2.0"
-)
+const ServiceVersion = "2026-04-06"
