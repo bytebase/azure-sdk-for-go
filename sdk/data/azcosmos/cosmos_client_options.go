@@ -15,4 +15,9 @@ type ClientOptions struct {
 	EnableContentResponseOnWrite bool
 	// PreferredRegions is a list of regions to be used when initializing the client in case the default region fails.
 	PreferredRegions []string
+
+	// QueryPlanCacheSize bounds the per-client LRU cache of Cosmos query plans.
+	// Zero (the default) uses the SDK default (256 entries).
+	// Negative values disable the cache entirely.
+	QueryPlanCacheSize int
 }
