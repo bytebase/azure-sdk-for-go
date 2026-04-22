@@ -3,6 +3,8 @@
 
 package queryengine
 
+import "errors"
+
 // QueryEngine is an interface that defines the methods for a query engine.
 type QueryEngine interface {
 	CreateQueryPipeline(query string, plan string, pkranges string) (QueryPipeline, error)
@@ -99,4 +101,29 @@ type QueryPipeline interface {
 	ProvideData(data []QueryResult) error
 	// Close frees the resources associated with the pipeline.
 	Close()
+}
+
+// ErrUnsupportedPlanFeature is returned by a QueryEngine implementation when
+// the query plan references a feature the engine has not implemented.
+// Callers receiving this should treat it as "this engine cannot serve this query"
+// and surface the original gateway error if any.
+var ErrUnsupportedPlanFeature = errors.New("azcosmos/queryengine: unsupported plan feature")
+
+// Disabled is a QueryEngine sentinel callers can use to explicitly opt out of
+// any default engine the SDK might install. Every method on Disabled returns
+// ErrUnsupportedPlanFeature.
+var Disabled QueryEngine = disabledEngine{}
+
+type disabledEngine struct{}
+
+func (disabledEngine) SupportedFeatures() string {
+	return ""
+}
+
+func (disabledEngine) CreateQueryPipeline(_ string, _ string, _ string) (QueryPipeline, error) {
+	return nil, ErrUnsupportedPlanFeature
+}
+
+func (disabledEngine) CreateReadManyPipeline(_ []ItemIdentity, _ string, _ string, _ uint8, _ []string) (QueryPipeline, error) {
+	return nil, ErrUnsupportedPlanFeature
 }
