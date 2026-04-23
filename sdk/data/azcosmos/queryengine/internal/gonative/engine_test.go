@@ -18,15 +18,27 @@ func TestDefaultReturnsNonNilEngine(t *testing.T) {
 	require.NotNil(t, e)
 }
 
-func TestDefaultAdvertisesNoFeaturesAtStage0(t *testing.T) {
-	assert.Equal(t, "", gonative.Default().SupportedFeatures())
+func TestDefaultAdvertisesStage1Features(t *testing.T) {
+	// Stage 1 advertises aggregate-family features so the gateway emits plans
+	// for VALUE + aliased + multi-aggregate queries.
+	feats := gonative.Default().SupportedFeatures()
+	assert.Contains(t, feats, "Aggregate")
+	assert.Contains(t, feats, "NonValueAggregate")
+	assert.Contains(t, feats, "MultipleAggregates")
 }
 
-func TestDefaultCreateQueryPipelineReturnsUnsupportedAtStage0(t *testing.T) {
-	_, err := gonative.Default().CreateQueryPipeline("SELECT * FROM c", "{}", "{}")
+func TestDefaultCreateQueryPipelineRejectsUnparseablePlan(t *testing.T) {
+	_, err := gonative.Default().CreateQueryPipeline("SELECT * FROM c", "not json", "{}")
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, queryengine.ErrUnsupportedPlanFeature),
-		"Default() should reject all queries at Stage 0; got %v", err)
+}
+
+func TestDefaultCreateQueryPipelineRejectsUnsupportedPlan(t *testing.T) {
+	// A plan carrying an ORDER BY instruction is out of Stage 1 scope.
+	plan := `{"partitionedQueryExecutionInfoVersion":2,"queryInfo":{"orderBy":["Ascending"],"orderByExpressions":["c.x"]}}`
+	pkranges := `{"PartitionKeyRanges":[{"id":"0"}]}`
+	_, err := gonative.Default().CreateQueryPipeline("SELECT ...", plan, pkranges)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, queryengine.ErrUnsupportedPlanFeature))
 }
 
 func TestDefaultCreateReadManyPipelineReturnsUnsupported(t *testing.T) {
