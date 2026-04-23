@@ -12,6 +12,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/uuid"
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 // ContainerClient lets you perform read, update, change throughput, and delete container operations.
@@ -22,7 +23,40 @@ type ContainerClient struct {
 	// The database that contains the container
 	database *DatabaseClient
 	// The resource link
-	link string
+	link      string
+	planCache *lru.Cache[planCacheKey, []byte]
+}
+
+// defaultQueryPlanCacheSize is the cache size used when
+// ClientOptions.QueryPlanCacheSize is zero.
+const defaultQueryPlanCacheSize = 256
+
+// planCacheKey uniquely identifies a cached query plan within a container.
+// The `features` component is part of the key because the same query text
+// produces different plans depending on the features the engine advertises.
+type planCacheKey struct {
+	databaseID      string
+	containerID     string
+	normalizedQuery string
+	features        string
+}
+
+// newPlanCache returns an initialized LRU cache for query plans, or nil if
+// the caller asked for caching to be disabled (negative size).
+func newPlanCache(size int) *lru.Cache[planCacheKey, []byte] {
+	switch {
+	case size < 0:
+		return nil
+	case size == 0:
+		size = defaultQueryPlanCacheSize
+	}
+	// lru.New returns an error only when size <= 0, which we have ruled out.
+	c, err := lru.New[planCacheKey, []byte](size)
+	if err != nil {
+		// Should be unreachable.
+		panic(err)
+	}
+	return c
 }
 
 // ItemIdentity represents the identity of an item (its id plus its partition key value).
@@ -42,9 +76,11 @@ type ItemIdentity struct {
 
 func newContainer(id string, database *DatabaseClient) (*ContainerClient, error) {
 	return &ContainerClient{
-		id:       id,
-		database: database,
-		link:     createLink(database.link, pathSegmentCollection, id)}, nil
+		id:        id,
+		database:  database,
+		link:      createLink(database.link, pathSegmentCollection, id),
+		planCache: newPlanCache(database.client.queryPlanCacheSize),
+	}, nil
 }
 
 // ID returns the identifier of the Cosmos container.

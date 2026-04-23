@@ -33,6 +33,8 @@ type Client struct {
 	internal    *azcore.Client
 	gem         *globalEndpointManager
 	endpointUrl *url.URL
+
+	queryPlanCacheSize int
 }
 
 // Endpoint used to create the client.
@@ -64,7 +66,11 @@ func NewClientWithKey(endpoint string, cred KeyCredential, o *ClientOptions) (*C
 	if err != nil {
 		return nil, err
 	}
-	return &Client{endpoint: endpoint, endpointUrl: endpointUrl, internal: internalClient, gem: gem}, nil
+	client := &Client{endpoint: endpoint, endpointUrl: endpointUrl, internal: internalClient, gem: gem}
+	if o != nil {
+		client.queryPlanCacheSize = o.QueryPlanCacheSize
+	}
+	return client, nil
 }
 
 // NewClient creates a new instance of Cosmos client with Azure AD access token authentication. It uses the default pipeline configuration.
@@ -110,7 +116,11 @@ func NewClient(endpoint string, cred azcore.TokenCredential, o *ClientOptions) (
 	if err != nil {
 		return nil, err
 	}
-	return &Client{endpoint: endpoint, endpointUrl: endpointUrl, internal: internalClient, gem: gem}, nil
+	client := &Client{endpoint: endpoint, endpointUrl: endpointUrl, internal: internalClient, gem: gem}
+	if o != nil {
+		client.queryPlanCacheSize = o.QueryPlanCacheSize
+	}
+	return client, nil
 }
 
 // NewClientFromConnectionString creates a new instance of Cosmos client from connection string. It uses the default pipeline configuration.
