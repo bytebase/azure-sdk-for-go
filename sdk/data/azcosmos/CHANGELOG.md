@@ -9,6 +9,7 @@
 * Added `queryengine/gonative` sub-package that implements `queryengine.QueryEngine` with the aggregate operators listed above.
 * Added `ClientOptions.QueryPlanCacheSize` and a per-container LRU plan cache. The cache is consulted around `getQueryPlanFromGateway` in the engine path so repeated queries within a session skip the plan round-trip.
 * Added Stage 2 of the pure-Go query engine: `DISTINCT` and `DISTINCT VALUE` support via a streaming hash-set keyed on canonical JSON. `SELECT DISTINCT c.field FROM c` and `SELECT DISTINCT VALUE c.field FROM c` now succeed cross-partition. The seen-set grows unbounded — same behavior as the .NET SDK's [`UnorderedDistinctMap`](https://github.com/Azure/azure-cosmos-dotnet-v3/blob/master/Microsoft.Azure.Cosmos/src/Query/Core/Pipeline/Distinct/DistinctMap.UnorderedDistinctMap.cs). See [BYT-9239](https://linear.app/bytebase/issue/BYT-9239).
+* Added Stage 3 of the pure-Go query engine: single-key `ORDER BY` (ASC and DESC). `SELECT ... FROM c ORDER BY c.field [ASC|DESC]` now succeeds cross-partition through a k-way merge across gateway-sorted partition streams. The comparator honors Cosmos item ordering (`undefined < null < bool < number < string`). Multi-key `ORDER BY` and continuation tokens are out of scope for this release. See [BYT-9239](https://linear.app/bytebase/issue/BYT-9239).
 
 ### Breaking Changes
 
