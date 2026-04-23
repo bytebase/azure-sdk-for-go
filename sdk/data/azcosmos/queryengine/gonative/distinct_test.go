@@ -169,26 +169,6 @@ func TestDistinctPipeline_DistinctValueScalars(t *testing.T) {
 	assert.Len(t, items, 3)
 }
 
-func TestDistinctPipeline_CardinalityCap(t *testing.T) {
-	plan := &planDoc{}
-	plan.QueryInfo.DistinctType = "Unordered"
-	p, err := newDistinctPipeline(plan, []string{"0"})
-	require.NoError(t, err)
-	p.maxDistinctCount = 3
-
-	// First Run() fans out requests.
-	_, err = p.Run()
-	require.NoError(t, err)
-
-	// Feed 5 unique values — should blow past the 3-item cap.
-	body := map[string]any{"Documents": rawMsgs(`"a"`, `"b"`, `"c"`, `"d"`, `"e"`)}
-	raw, _ := json.Marshal(body)
-	err = p.ProvideData([]queryengine.QueryResult{
-		{PartitionKeyRangeID: "0", Data: raw},
-	})
-	require.ErrorIs(t, err, ErrDistinctCardinalityExceeded)
-}
-
 func TestDistinctPipeline_RejectsOrderedDistinctType(t *testing.T) {
 	plan := &planDoc{}
 	plan.QueryInfo.DistinctType = "Ordered"
@@ -211,14 +191,13 @@ func TestDistinctPipeline_RejectsContinuationToken(t *testing.T) {
 	assert.Contains(t, err.Error(), "continuation token")
 }
 
-// Smoke test that forcibly constructs a pipeline bigger than production
-// convention to verify the cardinality cap disables cleanly.
-func TestDistinctPipeline_UncappedAllowsLargeCardinality(t *testing.T) {
+// Verifies the pipeline accepts high-cardinality inputs unchanged — the seen-set
+// grows unbounded, matching the .NET SDK's UnorderedDistinctMap behavior.
+func TestDistinctPipeline_HighCardinality(t *testing.T) {
 	plan := &planDoc{}
 	plan.QueryInfo.DistinctType = "Unordered"
 	p, err := newDistinctPipeline(plan, []string{"0"})
 	require.NoError(t, err)
-	p.maxDistinctCount = 0 // disabled
 
 	_, _ = p.Run()
 	docs := make([]json.RawMessage, 100)

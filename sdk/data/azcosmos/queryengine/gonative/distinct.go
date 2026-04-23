@@ -10,18 +10,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos/queryengine"
 )
 
-// defaultMaxDistinctCount bounds the number of distinct items the engine will
-// accumulate before returning ErrDistinctCardinalityExceeded. The cap protects
-// against memory exhaustion on high-cardinality DISTINCT queries and matches
-// the figure documented in the design spec §6.4.
-const defaultMaxDistinctCount = 1_000_000
-
-// ErrDistinctCardinalityExceeded is returned from ProvideData when the DISTINCT
-// hash-set grows beyond MaxDistinctCount. Callers should treat it as a signal
-// that the query is unsuitable for the current engine configuration — either
-// raise the cap on ClientOptions or restrict the query with a WHERE clause.
-var ErrDistinctCardinalityExceeded = fmt.Errorf("gonative: distinct cardinality exceeded")
-
 // distinctPartitionResponse decodes the per-partition response body for a
 // DISTINCT query. Unlike aggregate pipelines, the per-partition Documents is
 // an array of raw JSON values: one projected object per object-form DISTINCT,
@@ -61,6 +49,12 @@ func canonicalJSON(raw json.RawMessage) ([]byte, error) {
 // uniformly for object DISTINCT (SELECT DISTINCT c.field FROM c) and
 // DISTINCT VALUE (SELECT DISTINCT VALUE c.field FROM c) because both forms
 // land in the Documents array as raw JSON values.
+//
+// The seen-set grows unbounded — same as the .NET SDK's
+// Microsoft.Azure.Cosmos.UnorderedDistinctMap (see
+// https://github.com/Azure/azure-cosmos-dotnet-v3/blob/master/Microsoft.Azure.Cosmos/src/Query/Core/Pipeline/Distinct/DistinctMap.UnorderedDistinctMap.cs).
+// The OS is the memory ceiling. Queries whose DISTINCT cardinality could
+// exhaust memory should scope themselves with a WHERE clause.
 type distinctPipeline struct {
 	query          string
 	pkRangeIDs     []string
@@ -77,11 +71,6 @@ type distinctPipeline struct {
 	// canonical JSON bytes rendered as a string — Go strings are immutable
 	// and comparable, so they make lightweight map keys even for long JSON.
 	seen map[string]struct{}
-
-	// maxDistinctCount bounds len(seen). Zero disables the cap (callers that
-	// want unlimited growth can pass 0 explicitly; Stage 2 constructs this
-	// pipeline with the default 1e6 cap).
-	maxDistinctCount int
 }
 
 // newDistinctPipeline builds a pipeline for a plan whose distinctType is
@@ -96,10 +85,9 @@ func newDistinctPipeline(plan *planDoc, pkRangeIDs []string) (*distinctPipeline,
 	// against each partition. The pipeline needs the original query text to
 	// populate QueryRequest.Query; the caller passes it via CreateQueryPipeline.
 	return &distinctPipeline{
-		pkRangeIDs:       append([]string(nil), pkRangeIDs...),
-		partitionsDone:   make(map[string]bool, len(pkRangeIDs)),
-		seen:             make(map[string]struct{}),
-		maxDistinctCount: defaultMaxDistinctCount,
+		pkRangeIDs:     append([]string(nil), pkRangeIDs...),
+		partitionsDone: make(map[string]bool, len(pkRangeIDs)),
+		seen:           make(map[string]struct{}),
 	}, nil
 }
 
@@ -173,9 +161,6 @@ func (p *distinctPipeline) ProvideData(results []queryengine.QueryResult) error 
 			key := string(canonical)
 			if _, ok := p.seen[key]; ok {
 				continue
-			}
-			if p.maxDistinctCount > 0 && len(p.seen) >= p.maxDistinctCount {
-				return ErrDistinctCardinalityExceeded
 			}
 			p.seen[key] = struct{}{}
 			// Preserve the partition's original document bytes in the output —

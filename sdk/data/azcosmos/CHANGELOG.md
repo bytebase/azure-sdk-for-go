@@ -8,7 +8,7 @@
 * Added `queryengine.Disabled` sentinel and `queryengine.ErrUnsupportedPlanFeature` error.
 * Added `queryengine/gonative` sub-package that implements `queryengine.QueryEngine` with the aggregate operators listed above.
 * Added `ClientOptions.QueryPlanCacheSize` and a per-container LRU plan cache. The cache is consulted around `getQueryPlanFromGateway` in the engine path so repeated queries within a session skip the plan round-trip.
-* Added Stage 2 of the pure-Go query engine: `DISTINCT` and `DISTINCT VALUE` support via a streaming hash-set keyed on canonical JSON. `SELECT DISTINCT c.field FROM c` and `SELECT DISTINCT VALUE c.field FROM c` now succeed cross-partition. Cardinality is capped at 1e6 by default; queries exceeding the cap fail with `gonative.ErrDistinctCardinalityExceeded`. See [BYT-9239](https://linear.app/bytebase/issue/BYT-9239).
+* Added Stage 2 of the pure-Go query engine: `DISTINCT` and `DISTINCT VALUE` support via a streaming hash-set keyed on canonical JSON. `SELECT DISTINCT c.field FROM c` and `SELECT DISTINCT VALUE c.field FROM c` now succeed cross-partition. The seen-set grows unbounded — same behavior as the .NET SDK's [`UnorderedDistinctMap`](https://github.com/Azure/azure-cosmos-dotnet-v3/blob/master/Microsoft.Azure.Cosmos/src/Query/Core/Pipeline/Distinct/DistinctMap.UnorderedDistinctMap.cs). See [BYT-9239](https://linear.app/bytebase/issue/BYT-9239).
 
 ### Breaking Changes
 
