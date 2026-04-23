@@ -1,0 +1,55 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
+package gonative_test
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos/queryengine"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos/queryengine/gonative"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestDefaultReturnsNonNilEngine(t *testing.T) {
+	e := gonative.Default()
+	require.NotNil(t, e)
+}
+
+func TestDefaultAdvertisesStage1Features(t *testing.T) {
+	// Stage 1 advertises aggregate-family features so the gateway emits plans
+	// for VALUE + aliased + multi-aggregate queries.
+	feats := gonative.Default().SupportedFeatures()
+	assert.Contains(t, feats, "Aggregate")
+	assert.Contains(t, feats, "NonValueAggregate")
+	assert.Contains(t, feats, "MultipleAggregates")
+}
+
+func TestDefaultCreateQueryPipelineRejectsUnparseablePlan(t *testing.T) {
+	_, err := gonative.Default().CreateQueryPipeline("SELECT * FROM c", "not json", "{}")
+	require.Error(t, err)
+}
+
+func TestDefaultCreateQueryPipelineRejectsUnsupportedPlan(t *testing.T) {
+	// A plan carrying an ORDER BY instruction is out of Stage 1 scope.
+	plan := `{"partitionedQueryExecutionInfoVersion":2,"queryInfo":{"orderBy":["Ascending"],"orderByExpressions":["c.x"]}}`
+	pkranges := `{"PartitionKeyRanges":[{"id":"0"}]}`
+	_, err := gonative.Default().CreateQueryPipeline("SELECT ...", plan, pkranges)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, queryengine.ErrUnsupportedPlanFeature))
+}
+
+func TestDefaultCreateReadManyPipelineReturnsUnsupported(t *testing.T) {
+	_, err := gonative.Default().CreateReadManyPipeline(nil, "{}", "", 0, nil)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, queryengine.ErrUnsupportedPlanFeature))
+}
+
+func TestDefaultReturnsDistinctEngineInstances(t *testing.T) {
+	// Each caller gets its own instance — enables per-engine caches in later stages.
+	a := gonative.Default()
+	b := gonative.Default()
+	assert.NotSame(t, a, b)
+}
