@@ -265,6 +265,122 @@ func TestOrderByPipeline_RejectsMissingOrderByItems(t *testing.T) {
 	assert.Contains(t, err.Error(), "missing orderByItems")
 }
 
+// ------------------------------------------------------------- OFFSET/LIMIT
+
+func newAscOffsetLimit(t *testing.T, offset, limit int, pkRangeIDs ...string) *orderByPipeline {
+	t.Helper()
+	plan := &planDoc{}
+	plan.QueryInfo.OrderBy = []string{"Ascending"}
+	plan.QueryInfo.RewrittenQuery = `SELECT c._rid, [{"item":c.x}] AS orderByItems, c AS payload FROM c WHERE ({documentdb-formattableorderbyquery-filter}) ORDER BY c.x ASC`
+	off := offset
+	lim := limit
+	plan.QueryInfo.Offset = &off
+	plan.QueryInfo.Limit = &lim
+	p, err := newOrderByPipeline(plan, pkRangeIDs)
+	require.NoError(t, err)
+	return p
+}
+
+func TestOrderByPipeline_Offset_SkipsFirstN(t *testing.T) {
+	p := newAscOffsetLimit(t, 3, 10, "0")
+	rows := runOnePass(t, p, map[string][]byte{
+		"0": mkOrderByBody(t,
+			ordered{ob: `1`, payload: `{"x":1}`},
+			ordered{ob: `2`, payload: `{"x":2}`},
+			ordered{ob: `3`, payload: `{"x":3}`},
+			ordered{ob: `4`, payload: `{"x":4}`},
+			ordered{ob: `5`, payload: `{"x":5}`},
+		),
+	})
+	assert.Equal(t, []string{`{"x":4}`, `{"x":5}`}, rows)
+}
+
+func TestOrderByPipeline_Limit_CapsAtN(t *testing.T) {
+	p := newAscOffsetLimit(t, 0, 3, "0")
+	rows := runOnePass(t, p, map[string][]byte{
+		"0": mkOrderByBody(t,
+			ordered{ob: `1`, payload: `{"x":1}`},
+			ordered{ob: `2`, payload: `{"x":2}`},
+			ordered{ob: `3`, payload: `{"x":3}`},
+			ordered{ob: `4`, payload: `{"x":4}`},
+			ordered{ob: `5`, payload: `{"x":5}`},
+		),
+	})
+	assert.Equal(t, []string{`{"x":1}`, `{"x":2}`, `{"x":3}`}, rows)
+}
+
+func TestOrderByPipeline_OffsetAndLimit_MultiPartition(t *testing.T) {
+	// Global merged order: 1,2,3,4,5,6,7,8,9.
+	// OFFSET 2 LIMIT 4 → 3,4,5,6.
+	p := newAscOffsetLimit(t, 2, 4, "A", "B", "C")
+	rows := runOnePass(t, p, map[string][]byte{
+		"A": mkOrderByBody(t,
+			ordered{ob: `1`, payload: `{"id":"a1"}`},
+			ordered{ob: `4`, payload: `{"id":"a4"}`},
+			ordered{ob: `7`, payload: `{"id":"a7"}`},
+		),
+		"B": mkOrderByBody(t,
+			ordered{ob: `2`, payload: `{"id":"b2"}`},
+			ordered{ob: `5`, payload: `{"id":"b5"}`},
+			ordered{ob: `8`, payload: `{"id":"b8"}`},
+		),
+		"C": mkOrderByBody(t,
+			ordered{ob: `3`, payload: `{"id":"c3"}`},
+			ordered{ob: `6`, payload: `{"id":"c6"}`},
+			ordered{ob: `9`, payload: `{"id":"c9"}`},
+		),
+	})
+	assert.Equal(t, []string{
+		`{"id":"c3"}`, `{"id":"a4"}`, `{"id":"b5"}`, `{"id":"c6"}`,
+	}, rows)
+}
+
+func TestOrderByPipeline_OffsetBeyondAvailableRows(t *testing.T) {
+	p := newAscOffsetLimit(t, 100, 10, "0")
+	rows := runOnePass(t, p, map[string][]byte{
+		"0": mkOrderByBody(t,
+			ordered{ob: `1`, payload: `{"x":1}`},
+			ordered{ob: `2`, payload: `{"x":2}`},
+		),
+	})
+	assert.Empty(t, rows, "OFFSET beyond the total must emit nothing")
+	assert.True(t, p.IsComplete())
+}
+
+func TestOrderByPipeline_LimitZero_EmitsNothing(t *testing.T) {
+	p := newAscOffsetLimit(t, 0, 0, "0")
+	rows := runOnePass(t, p, map[string][]byte{
+		"0": mkOrderByBody(t,
+			ordered{ob: `1`, payload: `{"x":1}`},
+			ordered{ob: `2`, payload: `{"x":2}`},
+		),
+	})
+	assert.Empty(t, rows)
+	assert.True(t, p.IsComplete())
+}
+
+func TestNewOrderByPipeline_RejectsNegativeOffset(t *testing.T) {
+	plan := &planDoc{}
+	plan.QueryInfo.OrderBy = []string{"Ascending"}
+	plan.QueryInfo.RewrittenQuery = `SELECT ... ORDER BY c.x`
+	neg := -1
+	plan.QueryInfo.Offset = &neg
+	_, err := newOrderByPipeline(plan, []string{"0"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "negative OFFSET")
+}
+
+func TestNewOrderByPipeline_RejectsNegativeLimit(t *testing.T) {
+	plan := &planDoc{}
+	plan.QueryInfo.OrderBy = []string{"Ascending"}
+	plan.QueryInfo.RewrittenQuery = `SELECT ... ORDER BY c.x`
+	neg := -1
+	plan.QueryInfo.Limit = &neg
+	_, err := newOrderByPipeline(plan, []string{"0"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "negative LIMIT")
+}
+
 func TestOrderByPipeline_RejectsContinuationToken(t *testing.T) {
 	p := newAscPipeline(t, "0")
 	_, _ = p.Run()
