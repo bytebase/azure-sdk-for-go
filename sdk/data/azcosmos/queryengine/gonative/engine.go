@@ -32,7 +32,8 @@ func Default() *Engine {
 //	MultipleAggregates     — multi-aggregate in a single SELECT (Stage 1)
 //	DistinctValue          — SELECT DISTINCT VALUE c.field FROM c (Stage 2)
 //	Distinct               — SELECT DISTINCT c.field FROM c — object form (Stage 2)
-const supportedFeatures = "Aggregate,NonValueAggregate,MultipleAggregates,Distinct,DistinctValue"
+//	OrderBy                — single-key ORDER BY (Stage 3)
+const supportedFeatures = "Aggregate,NonValueAggregate,MultipleAggregates,Distinct,DistinctValue,OrderBy"
 
 // SupportedFeatures implements queryengine.QueryEngine.
 func (e *Engine) SupportedFeatures() string {
@@ -55,6 +56,8 @@ func (e *Engine) CreateQueryPipeline(query string, plan string, pkranges string)
 		return nil, err
 	}
 	switch {
+	case len(p.QueryInfo.OrderBy) > 0:
+		return newOrderByPipeline(p, rangeIDs)
 	case p.QueryInfo.DistinctType == "Unordered":
 		pipe, err := newDistinctPipeline(p, rangeIDs)
 		if err != nil {
@@ -84,14 +87,16 @@ func (e *Engine) CreateQueryPipeline(query string, plan string, pkranges string)
 // entries from this guard as their operators come online.
 func rejectUnsupportedPlan(p *planDoc) error {
 	qi := p.QueryInfo
-	// "Ordered" DISTINCT composes with ORDER BY merge (Stage 3); reject for now.
+	// "Ordered" DISTINCT composes with ORDER BY merge; reject until Stage 3
+	// wires composition through the merge heap. Stage 3 itself handles plain
+	// ORDER BY — see the dispatch above.
 	if qi.DistinctType == "Ordered" {
 		return queryengine.ErrUnsupportedPlanFeature
 	}
 	if qi.DistinctType != "" && qi.DistinctType != "None" && qi.DistinctType != "Unordered" {
 		return queryengine.ErrUnsupportedPlanFeature
 	}
-	if len(qi.OrderBy) > 0 || len(qi.GroupByExpressions) > 0 {
+	if len(qi.GroupByExpressions) > 0 {
 		return queryengine.ErrUnsupportedPlanFeature
 	}
 	if qi.Top != nil || qi.Offset != nil || qi.Limit != nil {

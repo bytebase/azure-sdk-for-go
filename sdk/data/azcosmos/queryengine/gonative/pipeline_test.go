@@ -203,6 +203,29 @@ func TestDistinctPipeline_10_1_ObjectDistinct(t *testing.T) {
 	}
 }
 
+func TestOrderByPipeline_4_1_Ascending(t *testing.T) {
+	rows := drivePipelineAll(t, "4_1", `SELECT c.name, c.population FROM c ORDER BY c.population ASC`)
+	// Captured fixture: 18 cities in the WorldCities test container, mixed
+	// numeric + string populations (the gateway delivered them pre-sorted).
+	assert.Len(t, rows, 18, "expected one row per city")
+	// First row should be the smallest population (number type comes before
+	// string under Cosmos ordering, so this is a numeric).
+	var first map[string]any
+	require.NoError(t, json.Unmarshal(rows[0], &first))
+	_, ok := first["population"].(float64)
+	assert.True(t, ok, "first row under ASC ordering must be numeric population (numbers sort before strings)")
+}
+
+func TestOrderByPipeline_4_2_Descending(t *testing.T) {
+	rows := drivePipelineAll(t, "4_2", `SELECT c.name, c.population FROM c ORDER BY c.population DESC`)
+	assert.Len(t, rows, 18)
+	// DESC: strings come first (strings > numbers under Cosmos ordering).
+	var first map[string]any
+	require.NoError(t, json.Unmarshal(rows[0], &first))
+	_, ok := first["population"].(string)
+	assert.True(t, ok, "first row under DESC must be a string-valued population (strings sort after numbers)")
+}
+
 func TestDistinctPipeline_10_2_DistinctValue(t *testing.T) {
 	rows := drivePipelineAll(t, "10_2", `SELECT DISTINCT VALUE c.countryRegion FROM c`)
 	// Captured fixture has 6 unique countryRegion scalars.
