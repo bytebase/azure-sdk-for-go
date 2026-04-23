@@ -203,6 +203,38 @@ func TestDistinctPipeline_10_1_ObjectDistinct(t *testing.T) {
 	}
 }
 
+func TestOrderByPipeline_12_1_OffsetZeroLimitTen(t *testing.T) {
+	rows := drivePipelineAll(t, "12_1", `SELECT * FROM c ORDER BY c.name OFFSET 0 LIMIT 10`)
+	assert.Len(t, rows, 10, "OFFSET 0 LIMIT 10 must emit 10 rows")
+	// Rows should be in ascending order by c.name.
+	var prevName string
+	for i, r := range rows {
+		var obj map[string]any
+		require.NoError(t, json.Unmarshal(r, &obj), "row %d: %s", i, r)
+		name, _ := obj["name"].(string)
+		if i > 0 {
+			assert.LessOrEqual(t, prevName, name, "ascending order broken at row %d", i)
+		}
+		prevName = name
+	}
+}
+
+func TestOrderByPipeline_12_2_OffsetTenLimitTen(t *testing.T) {
+	rows := drivePipelineAll(t, "12_2", `SELECT * FROM c ORDER BY c.name OFFSET 10 LIMIT 10`)
+	// WorldCities has 18 rows total; OFFSET 10 LIMIT 10 returns rows 11–18 (8 rows).
+	assert.Len(t, rows, 8)
+	var prevName string
+	for i, r := range rows {
+		var obj map[string]any
+		require.NoError(t, json.Unmarshal(r, &obj))
+		name, _ := obj["name"].(string)
+		if i > 0 {
+			assert.LessOrEqual(t, prevName, name)
+		}
+		prevName = name
+	}
+}
+
 func TestTopPipeline_1_3_TopTen(t *testing.T) {
 	rows := drivePipelineAll(t, "1_3", `SELECT TOP 10 * FROM c`)
 	assert.Len(t, rows, 10, "TOP 10 must emit exactly 10 rows")
