@@ -116,6 +116,12 @@ func (h *mergeHeap) Pop() any {
 // gateway rejects the query outright; if it has one the gateway emits a plan
 // with multiple entries in orderByExpressions, and the comparator would need
 // to walk all of them. Both cases are deferred.
+//
+// Stage 5 extends the pipeline with OFFSET/LIMIT awareness. Per Cosmos
+// semantics, OFFSET/LIMIT always composes with ORDER BY; the gateway rewrites
+// the per-partition query to `OFFSET 0 LIMIT (offset+limit)` so every
+// partition delivers enough rows to satisfy any interleaving, and this
+// pipeline handles the global skip + take after merging.
 type orderByPipeline struct {
 	rewrittenQuery string
 	pkRangeIDs     []string
@@ -128,6 +134,15 @@ type orderByPipeline struct {
 	heap   *mergeHeap
 	issued bool
 	closed bool
+
+	// offset and limit implement plan.QueryInfo.Offset/Limit. A negative limit
+	// (the sentinel returned by newOrderByPipeline when the plan has no limit)
+	// means "unlimited". skipped counts rows dropped by offset; emitted counts
+	// rows forwarded to the caller — both drive the skip+take logic in drain.
+	offset  int
+	limit   int
+	skipped int
+	emitted int
 
 	// pending emits produced by k-way merging when all partitions have data.
 	pending [][]byte
@@ -145,8 +160,25 @@ func newOrderByPipeline(plan *planDoc, pkRangeIDs []string) (*orderByPipeline, e
 	}
 	// Substitute the formattable-order-by-query-filter placeholder with "true"
 	// for the initial request per partition. Multi-page continuation (which
-	// would substitute with a tail-comparison filter) is out of Stage 3's scope.
+	// would substitute with a tail-comparison filter) is out of scope here.
 	query := strings.ReplaceAll(plan.QueryInfo.RewrittenQuery, orderByQueryFilterPlaceholder, "true")
+
+	// OFFSET/LIMIT always composes with ORDER BY per Cosmos syntax; defaults
+	// mean "no skip, unlimited take".
+	offset := 0
+	if plan.QueryInfo.Offset != nil {
+		if *plan.QueryInfo.Offset < 0 {
+			return nil, fmt.Errorf("gonative: negative OFFSET=%d", *plan.QueryInfo.Offset)
+		}
+		offset = *plan.QueryInfo.Offset
+	}
+	limit := -1
+	if plan.QueryInfo.Limit != nil {
+		if *plan.QueryInfo.Limit < 0 {
+			return nil, fmt.Errorf("gonative: negative LIMIT=%d", *plan.QueryInfo.Limit)
+		}
+		limit = *plan.QueryInfo.Limit
+	}
 
 	partByID := make(map[string]int, len(pkRangeIDs))
 	partitions := make([]*partitionStream, len(pkRangeIDs))
@@ -161,6 +193,8 @@ func newOrderByPipeline(plan *planDoc, pkRangeIDs []string) (*orderByPipeline, e
 		partitionsDone: make(map[string]bool, len(pkRangeIDs)),
 		partitionByID:  partByID,
 		partitions:     partitions,
+		offset:         offset,
+		limit:          limit,
 	}, nil
 }
 
@@ -168,7 +202,9 @@ func (p *orderByPipeline) Query() string  { return p.rewrittenQuery }
 func (p *orderByPipeline) Close()         { p.closed = true }
 
 // IsComplete returns true once every partition's gateway response has been
-// merged and the last pending row has been handed to the caller.
+// merged and the last pending row has been handed to the caller, or once a
+// LIMIT has been satisfied (in which case unprocessed partition rows are
+// intentionally discarded).
 func (p *orderByPipeline) IsComplete() bool {
 	if !p.issued {
 		return false
@@ -176,13 +212,18 @@ func (p *orderByPipeline) IsComplete() bool {
 	if len(p.pending) > 0 {
 		return false
 	}
+	// LIMIT reached — the caller has everything it asked for. Any rows still
+	// sitting in partition streams were produced speculatively by the gateway
+	// (it fetched OFFSET+LIMIT rows per partition to cover any interleaving)
+	// and are safe to drop.
+	if p.limit >= 0 && p.emitted >= p.limit {
+		return true
+	}
 	for _, id := range p.pkRangeIDs {
 		if !p.partitionsDone[id] {
 			return false
 		}
 	}
-	// All partitions have delivered data; anything still in the heap or in a
-	// partition buffer needs to flush before we can call it done.
 	if p.heap != nil && p.heap.Len() > 0 {
 		return false
 	}
@@ -277,17 +318,33 @@ func (p *orderByPipeline) initHeap() {
 	p.heap = h
 }
 
-// drain flushes the k-way merge into p.pending. After Stage 3's single-page
+// drain flushes the k-way merge into p.pending. After the single-page
 // guarantee the heap holds at most one row per partition; popping the top,
 // advancing that partition, and re-pushing (if not drained) emits the
 // globally-next row. Runs to completion in one Run() turn.
+//
+// OFFSET/LIMIT (Stage 5) apply here: the first `offset` rows are discarded,
+// and emission stops once `limit` rows have been collected (when limit >= 0).
+// Both are tracked on the pipeline across calls so a partial drain would
+// resume correctly — though in practice drain runs to completion.
 func (p *orderByPipeline) drain() {
 	for p.heap.Len() > 0 {
+		if p.limit >= 0 && p.emitted >= p.limit {
+			// LIMIT reached — stop popping and drop the remaining heap state
+			// so IsComplete trips on the next turn.
+			p.heap.idx = p.heap.idx[:0]
+			return
+		}
 		top := heap.Pop(p.heap).(int)
 		s := p.partitions[top]
 		doc := s.pop()
-		// Defensive copy — json.RawMessage aliases the underlying buffer.
-		p.pending = append(p.pending, append([]byte(nil), doc.Payload...))
+		if p.skipped < p.offset {
+			p.skipped++
+		} else {
+			// Defensive copy — json.RawMessage aliases the underlying buffer.
+			p.pending = append(p.pending, append([]byte(nil), doc.Payload...))
+			p.emitted++
+		}
 		if _, ok := s.peek(); ok {
 			heap.Push(p.heap, top)
 		}

@@ -34,7 +34,8 @@ func Default() *Engine {
 //	Distinct               — SELECT DISTINCT c.field FROM c — object form (Stage 2)
 //	OrderBy                — single-key ORDER BY (Stage 3)
 //	Top                    — SELECT TOP N FROM c (Stage 4)
-const supportedFeatures = "Aggregate,NonValueAggregate,MultipleAggregates,Distinct,DistinctValue,OrderBy,Top"
+//	OffsetAndLimit         — SELECT … ORDER BY … OFFSET N LIMIT M (Stage 5)
+const supportedFeatures = "Aggregate,NonValueAggregate,MultipleAggregates,Distinct,DistinctValue,OrderBy,Top,OffsetAndLimit"
 
 // SupportedFeatures implements queryengine.QueryEngine.
 func (e *Engine) SupportedFeatures() string {
@@ -107,9 +108,11 @@ func rejectUnsupportedPlan(p *planDoc) error {
 	if len(qi.GroupByExpressions) > 0 {
 		return queryengine.ErrUnsupportedPlanFeature
 	}
-	if qi.Offset != nil || qi.Limit != nil {
-		return queryengine.ErrUnsupportedPlanFeature
-	}
+	// OFFSET/LIMIT always composes with ORDER BY per Cosmos syntax; when that
+	// composition lands the plan has both qi.OrderBy and qi.Offset/qi.Limit,
+	// and the dispatch routes to newOrderByPipeline which handles them.
+	// Plans that set offset/limit without an ORDER BY fall through to the
+	// default case in CreateQueryPipeline and are rejected there.
 	if qi.HasNonStreamingOrderBy {
 		return queryengine.ErrUnsupportedPlanFeature
 	}
