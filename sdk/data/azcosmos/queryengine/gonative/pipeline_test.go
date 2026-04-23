@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos/queryengine"
-	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos/queryengine/internal/gonative"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos/queryengine/gonative"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

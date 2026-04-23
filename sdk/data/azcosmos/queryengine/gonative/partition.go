@@ -9,7 +9,7 @@ import (
 )
 
 // Per-partition response shapes observed in
-// queryengine/internal/gonative/testdata after the gateway has rewritten an
+// queryengine/gonative/testdata after the gateway has rewritten an
 // aggregate query. Two shapes:
 //
 //	VALUE form — plan.QueryInfo.Aggregates non-empty:

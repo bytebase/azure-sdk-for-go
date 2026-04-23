@@ -4,7 +4,7 @@
 
 ### Features Added
 
-* Added `queryengine.Disabled` sentinel and `queryengine.ErrUnsupportedPlanFeature` error, plus a new `queryengine/internal/gonative` sub-package housing the pure-Go query engine that later stages will flesh out. No behavior change in this release — the engine is inert and is not yet auto-enabled. See [BYT-9239](https://linear.app/bytebase/issue/BYT-9239).
+* Added `queryengine.Disabled` sentinel and `queryengine.ErrUnsupportedPlanFeature` error, plus a new `queryengine/gonative` sub-package housing the pure-Go query engine that later stages will flesh out. No behavior change in this release — the engine is inert and is not yet auto-enabled. See [BYT-9239](https://linear.app/bytebase/issue/BYT-9239).
 * Added `ClientOptions.QueryPlanCacheSize` and a per-container LRU plan cache; allocated at container construction but unused in this release.
 
 ### Breaking Changes

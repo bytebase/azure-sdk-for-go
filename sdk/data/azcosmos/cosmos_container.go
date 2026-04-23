@@ -8,9 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos/queryengine"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos/queryengine/gonative"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
 )
@@ -611,13 +615,45 @@ func (c *ContainerClient) NewCrossPartitionQueryItemsPager(query string, o *Quer
 		headerOptionsOverride: &h,
 	}
 
+	// Engine routing for cross-partition queries:
+	//
+	//   queryOptions.QueryEngine == nil                    → engage-on-error:
+	//     try the gateway first; if it returns the specific "cannot be served
+	//     directly by the gateway" BadRequest, pivot to the default pure-Go
+	//     query engine. This matches the .NET SDK and avoids adding RTTs to
+	//     queries the gateway can still serve.
+	//
+	//   queryOptions.QueryEngine == queryengine.Disabled    → pure gateway path:
+	//     preserves pre-engine behavior exactly. Used by callers that must
+	//     opt out (e.g. the Bytebase BB_COSMOS_DISABLE_QUERY_ENGINE kill switch).
+	//
+	//   queryOptions.QueryEngine == <explicit non-nil>       → direct engine path:
+	//     skip the gateway attempt and go straight to executeQueryWithEngine.
+	if queryOptions.QueryEngine != nil && queryOptions.QueryEngine != queryengine.Disabled {
+		return c.executeQueryWithEngine(queryOptions.QueryEngine, query, queryOptions, operationContext)
+	}
+
+	engageOnError := queryOptions.QueryEngine != queryengine.Disabled
+
 	path, _ := generatePathForNameBased(resourceTypeDocument, operationContext.resourceAddress, true)
 
+	var enginePager *runtime.Pager[QueryItemsResponse]
 	return runtime.NewPager(runtime.PagingHandler[QueryItemsResponse]{
 		More: func(page QueryItemsResponse) bool {
+			if enginePager != nil {
+				return enginePager.More()
+			}
 			return page.ContinuationToken != nil
 		},
 		Fetcher: func(ctx context.Context, page *QueryItemsResponse) (QueryItemsResponse, error) {
+			// Continuing on the engine path after engage-on-error pivoted.
+			if enginePager != nil {
+				if !enginePager.More() {
+					return QueryItemsResponse{}, nil
+				}
+				return enginePager.NextPage(ctx)
+			}
+
 			var err error
 			spanName, err := c.getSpanForItems(operationTypeQuery)
 			if err != nil {
@@ -642,12 +678,44 @@ func (c *ContainerClient) NewCrossPartitionQueryItemsPager(query string, o *Quer
 				nil)
 
 			if err != nil {
+				// Engage-on-error: pivot to the pure-Go engine iff (a) engage is enabled
+				// (caller did not pass queryengine.Disabled) and (b) this is the specific
+				// "cross-partition cannot be served directly" BadRequest.
+				if engageOnError && page == nil && isCrossPartitionUnsupported(err) {
+					eng := queryOptions.QueryEngine
+					if eng == nil {
+						eng = gonative.Default()
+					}
+					enginePager = c.executeQueryWithEngine(eng, query, queryOptions, operationContext)
+					if !enginePager.More() {
+						return QueryItemsResponse{}, nil
+					}
+					return enginePager.NextPage(ctx)
+				}
 				return QueryItemsResponse{}, err
 			}
 
 			return newQueryResponse(azResponse)
 		},
 	})
+}
+
+// isCrossPartitionUnsupported reports whether err is the gateway's "cannot be
+// served directly by the gateway" BadRequest — the signal we use to pivot into
+// the pure-Go query engine. Matches both wordings observed from the service:
+// the general "cross partition query can not be directly served by the gateway"
+// and the aggregates-specific "Cross partition query only supports 'VALUE ...'".
+func isCrossPartitionUnsupported(err error) bool {
+	if err == nil {
+		return false
+	}
+	var re *azcore.ResponseError
+	if !errors.As(err, &re) || re.StatusCode != 400 {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "cross partition query can not be directly served by the gateway") ||
+		strings.Contains(msg, "Cross partition query only supports")
 }
 
 // NewQueryItemsPager executes a single partition query in a Cosmos container.

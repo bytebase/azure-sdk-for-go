@@ -13,7 +13,7 @@ import (
 // additional fields; declaring them defensively here keeps Stage 1 parsing
 // tolerant of plans that carry extra information.
 //
-// Observed shapes (see queryengine/internal/gonative/testdata):
+// Observed shapes (see queryengine/gonative/testdata):
 //
 //	SELECT VALUE agg(x) FROM c            — "VALUE form"
 //	  aggregates: ["Count"]
