@@ -203,6 +203,17 @@ func TestDistinctPipeline_10_1_ObjectDistinct(t *testing.T) {
 	}
 }
 
+func TestTopPipeline_1_3_TopTen(t *testing.T) {
+	rows := drivePipelineAll(t, "1_3", `SELECT TOP 10 * FROM c`)
+	assert.Len(t, rows, 10, "TOP 10 must emit exactly 10 rows")
+	// Every row should be a valid object (not the payload-wrapped form).
+	for i, r := range rows {
+		var obj map[string]any
+		require.NoError(t, json.Unmarshal(r, &obj), "row %d: %s", i, r)
+		assert.NotEmpty(t, obj, "row %d should be a non-empty object", i)
+	}
+}
+
 func TestOrderByPipeline_4_1_Ascending(t *testing.T) {
 	rows := drivePipelineAll(t, "4_1", `SELECT c.name, c.population FROM c ORDER BY c.population ASC`)
 	// Captured fixture: 18 cities in the WorldCities test container, mixed
