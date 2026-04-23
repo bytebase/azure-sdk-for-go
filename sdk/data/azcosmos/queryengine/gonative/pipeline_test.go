@@ -152,6 +152,70 @@ func TestAggPipeline_5_5_MultiAggMinMax(t *testing.T) {
 	assert.LessOrEqual(t, minV, maxV)
 }
 
+// drivePipelineAll runs a pipeline end-to-end against captured fixtures and
+// returns every emitted row. Used for operators that emit more than one row
+// (DISTINCT, later Stage 3+ ORDER BY/TOP/LIMIT/GROUP BY).
+func drivePipelineAll(t *testing.T, queryID, originalQuery string) []json.RawMessage {
+	t.Helper()
+	base := filepath.Join("testdata", "query_"+queryID)
+	plan := mustReadFile(t, base+"_plan.json")
+	pkranges := mustReadFile(t, base+"_pkranges.json")
+	bodies := partitionBodies(t, base+"_partitions")
+
+	engine := gonative.Default()
+	pipe, err := engine.CreateQueryPipeline(originalQuery, string(plan), string(pkranges))
+	require.NoError(t, err, "CreateQueryPipeline")
+	defer pipe.Close()
+
+	var rows []json.RawMessage
+	for i := 0; i < 50 && !pipe.IsComplete(); i++ {
+		res, err := pipe.Run()
+		require.NoError(t, err, "Run turn %d", i)
+		if len(res.Requests) > 0 {
+			results := make([]queryengine.QueryResult, 0, len(res.Requests))
+			for _, req := range res.Requests {
+				body, ok := bodies[req.PartitionKeyRangeID]
+				require.True(t, ok, "missing fixture for pk-range %s", req.PartitionKeyRangeID)
+				results = append(results, queryengine.NewQueryResult(req.PartitionKeyRangeID, body, ""))
+			}
+			require.NoError(t, pipe.ProvideData(results))
+		}
+		for _, it := range res.Items {
+			rows = append(rows, append(json.RawMessage(nil), it...))
+		}
+	}
+	require.True(t, pipe.IsComplete(), "pipeline did not converge")
+	return rows
+}
+
+func TestDistinctPipeline_10_1_ObjectDistinct(t *testing.T) {
+	rows := drivePipelineAll(t, "10_1", `SELECT DISTINCT c.country FROM c`)
+	// Captured fixture has 6 unique countries in a single partition.
+	assert.Len(t, rows, 6)
+	seen := map[string]bool{}
+	for _, r := range rows {
+		var obj map[string]any
+		require.NoError(t, json.Unmarshal(r, &obj))
+		country, ok := obj["country"].(string)
+		require.True(t, ok, "each row must carry a country field")
+		assert.False(t, seen[country], "duplicate country emitted: %s", country)
+		seen[country] = true
+	}
+}
+
+func TestDistinctPipeline_10_2_DistinctValue(t *testing.T) {
+	rows := drivePipelineAll(t, "10_2", `SELECT DISTINCT VALUE c.countryRegion FROM c`)
+	// Captured fixture has 6 unique countryRegion scalars.
+	assert.Len(t, rows, 6)
+	seen := map[string]bool{}
+	for _, r := range rows {
+		var v string
+		require.NoError(t, json.Unmarshal(r, &v))
+		assert.False(t, seen[v], "duplicate scalar emitted: %s", v)
+		seen[v] = true
+	}
+}
+
 func TestAggPipeline_11_2_ValueCount(t *testing.T) {
 	row := driveAggPipeline(t, "11_2", `SELECT VALUE COUNT(1) FROM c`)
 	var n float64
