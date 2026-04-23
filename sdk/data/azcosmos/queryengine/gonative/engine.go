@@ -33,7 +33,8 @@ func Default() *Engine {
 //	DistinctValue          — SELECT DISTINCT VALUE c.field FROM c (Stage 2)
 //	Distinct               — SELECT DISTINCT c.field FROM c — object form (Stage 2)
 //	OrderBy                — single-key ORDER BY (Stage 3)
-const supportedFeatures = "Aggregate,NonValueAggregate,MultipleAggregates,Distinct,DistinctValue,OrderBy"
+//	Top                    — SELECT TOP N FROM c (Stage 4)
+const supportedFeatures = "Aggregate,NonValueAggregate,MultipleAggregates,Distinct,DistinctValue,OrderBy,Top"
 
 // SupportedFeatures implements queryengine.QueryEngine.
 func (e *Engine) SupportedFeatures() string {
@@ -77,6 +78,13 @@ func (e *Engine) CreateQueryPipeline(query string, plan string, pkranges string)
 			return nil, err
 		}
 		return pipe, nil
+	case p.QueryInfo.Top != nil:
+		pipe, err := newTopPipeline(p, rangeIDs)
+		if err != nil {
+			return nil, err
+		}
+		pipe.query = query
+		return pipe, nil
 	default:
 		return nil, queryengine.ErrUnsupportedPlanFeature
 	}
@@ -99,7 +107,7 @@ func rejectUnsupportedPlan(p *planDoc) error {
 	if len(qi.GroupByExpressions) > 0 {
 		return queryengine.ErrUnsupportedPlanFeature
 	}
-	if qi.Top != nil || qi.Offset != nil || qi.Limit != nil {
+	if qi.Offset != nil || qi.Limit != nil {
 		return queryengine.ErrUnsupportedPlanFeature
 	}
 	if qi.HasNonStreamingOrderBy {
