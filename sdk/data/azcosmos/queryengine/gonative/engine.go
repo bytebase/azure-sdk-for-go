@@ -35,7 +35,8 @@ func Default() *Engine {
 //	OrderBy                — single-key ORDER BY (Stage 3)
 //	Top                    — SELECT TOP N FROM c (Stage 4)
 //	OffsetAndLimit         — SELECT … ORDER BY … OFFSET N LIMIT M (Stage 5)
-const supportedFeatures = "Aggregate,NonValueAggregate,MultipleAggregates,Distinct,DistinctValue,OrderBy,Top,OffsetAndLimit"
+//	GroupBy                — SELECT … FROM c GROUP BY c.field (Stage 6)
+const supportedFeatures = "Aggregate,NonValueAggregate,MultipleAggregates,Distinct,DistinctValue,OrderBy,Top,OffsetAndLimit,GroupBy"
 
 // SupportedFeatures implements queryengine.QueryEngine.
 func (e *Engine) SupportedFeatures() string {
@@ -73,6 +74,11 @@ func (e *Engine) CreateQueryPipeline(query string, plan string, pkranges string)
 			return nil, err
 		}
 		return pipe, nil
+	case len(p.QueryInfo.GroupByExpressions) > 0:
+		// GROUP BY plans carry groupByExpressions; the aliased-aggregate
+		// (single-group) path used by Stage 1 has groupByAliasToAggregateType
+		// populated but groupByExpressions empty. The check order matters.
+		return newGroupPipeline(p, rangeIDs)
 	case len(p.QueryInfo.GroupByAliasToAggregateType) > 0:
 		pipe, err := newAliasedPipeline(p, rangeIDs)
 		if err != nil {
@@ -103,9 +109,6 @@ func rejectUnsupportedPlan(p *planDoc) error {
 		return queryengine.ErrUnsupportedPlanFeature
 	}
 	if qi.DistinctType != "" && qi.DistinctType != "None" && qi.DistinctType != "Unordered" {
-		return queryengine.ErrUnsupportedPlanFeature
-	}
-	if len(qi.GroupByExpressions) > 0 {
 		return queryengine.ErrUnsupportedPlanFeature
 	}
 	// OFFSET/LIMIT always composes with ORDER BY per Cosmos syntax; when that
