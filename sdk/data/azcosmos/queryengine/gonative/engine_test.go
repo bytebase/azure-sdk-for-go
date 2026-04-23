@@ -33,9 +33,9 @@ func TestDefaultCreateQueryPipelineRejectsUnparseablePlan(t *testing.T) {
 }
 
 func TestDefaultCreateQueryPipelineRejectsUnsupportedPlan(t *testing.T) {
-	// A plan carrying a GROUP BY instruction is out of the engine's current
-	// scope — GROUP BY lands in Stage 6. This guard exercises the reject path.
-	plan := `{"partitionedQueryExecutionInfoVersion":2,"queryInfo":{"groupByExpressions":["c.country"]}}`
+	// A plan carrying hasNonStreamingOrderBy (vector/hybrid-search scoring)
+	// is out of the engine's scope — the design spec explicitly excludes it.
+	plan := `{"partitionedQueryExecutionInfoVersion":2,"queryInfo":{"hasNonStreamingOrderBy":true}}`
 	pkranges := `{"PartitionKeyRanges":[{"id":"0"}]}`
 	_, err := gonative.Default().CreateQueryPipeline("SELECT ...", plan, pkranges)
 	require.Error(t, err)
