@@ -203,6 +203,50 @@ func TestDistinctPipeline_10_1_ObjectDistinct(t *testing.T) {
 	}
 }
 
+func TestGroupPipeline_6_1_CountByCountry(t *testing.T) {
+	rows := drivePipelineAll(t, "6_1", `SELECT c.country, COUNT(1) AS cityCount FROM c GROUP BY c.country`)
+	// Captured fixture covers 6 countries.
+	assert.Len(t, rows, 6)
+	byCountry := map[string]float64{}
+	for _, r := range rows {
+		var obj map[string]any
+		require.NoError(t, json.Unmarshal(r, &obj))
+		country, ok := obj["country"].(string)
+		require.True(t, ok, "row missing country: %s", r)
+		cnt, ok := obj["cityCount"].(float64)
+		require.True(t, ok, "row missing cityCount: %s", r)
+		byCountry[country] = cnt
+	}
+	// AE has 5 cities in the test container (from Stage 1 captures).
+	assert.EqualValues(t, 5, byCountry["AE"])
+	// Verify sum of group counts equals the total row count (18).
+	var total float64
+	for _, n := range byCountry {
+		total += n
+	}
+	assert.Equal(t, float64(18), total)
+}
+
+func TestGroupPipeline_6_2_MultipleAggregates(t *testing.T) {
+	rows := drivePipelineAll(t, "6_2", `SELECT c.countryRegion, COUNT(1) AS count, SUM(StringToNumber(c.population)) AS totalPop FROM c GROUP BY c.countryRegion`)
+	assert.NotEmpty(t, rows)
+	// Each row must carry all three aliases and their values must be numeric
+	// (count) / numeric (totalPop) / string (countryRegion).
+	var totalCount float64
+	for _, r := range rows {
+		var obj map[string]any
+		require.NoError(t, json.Unmarshal(r, &obj))
+		_, ok := obj["countryRegion"].(string)
+		assert.True(t, ok, "countryRegion should be a string: %s", r)
+		cnt, ok := obj["count"].(float64)
+		require.True(t, ok, "count should be numeric: %s", r)
+		_, ok = obj["totalPop"].(float64)
+		assert.True(t, ok, "totalPop should be numeric: %s", r)
+		totalCount += cnt
+	}
+	assert.Equal(t, float64(18), totalCount, "sum of per-region counts must equal total row count")
+}
+
 func TestOrderByPipeline_12_1_OffsetZeroLimitTen(t *testing.T) {
 	rows := drivePipelineAll(t, "12_1", `SELECT * FROM c ORDER BY c.name OFFSET 0 LIMIT 10`)
 	assert.Len(t, rows, 10, "OFFSET 0 LIMIT 10 must emit 10 rows")
