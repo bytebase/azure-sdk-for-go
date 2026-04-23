@@ -40,8 +40,8 @@ The authoritative target list is the 40-query inventory in the plan file referen
 
 ### 2.3 Success criteria
 - `scripts/cosmos-repro-dotnet/` has a Go twin that runs the same target query list. 39 of 40 pass; 4.3 continues to fail with the same server error as .NET.
-- The new engine is auto-enabled in `container.NewCrossPartitionQueryItemsPager`; callers get correct results without code changes.
-- CI unit tests pass in under 30 s, mocked end-to-end. Integration suite runs when `AZURE_COSMOS_KEY` is set; skipped otherwise.
+- `NewCrossPartitionQueryItemsPager` engages the engine on-error; callers get correct results without code changes.
+- Fork unit tests pass in under 30 s. Per-stage `AZURE_COSMOS_KEY`-guarded integration tests run in the fork repo during Stages 2–6; in the Bytebase repo from Stage 7 onwards.
 
 ## 3. SDK architecture
 
@@ -50,31 +50,37 @@ The authoritative target list is the 40-query inventory in the plan file referen
 ```
 sdk/data/azcosmos/
 ├── queryengine/                       # existing — interface & types
-│   ├── cosmos_query_engine.go         # existing
-│   └── internal/
-│       └── gonative/                  # NEW — pure-Go default implementation
-│           ├── engine.go              # implements queryengine.QueryEngine
-│           ├── pipeline.go            # QueryPipeline fsm
-│           ├── plan.go                # JSON model of the query plan
-│           ├── merge.go               # k-way ORDER BY merge
-│           ├── agg.go                 # COUNT/SUM/MIN/MAX/AVG finalizers
-│           ├── distinct.go            # hash-set dedupe
-│           ├── group.go               # GROUP BY hashmap
-│           ├── topskiptake.go         # TOP / OFFSET / LIMIT
-│           └── *_test.go              # unit tests (mocked plans + partition data)
-├── cosmos_container_query_engine.go   # existing — modify to default-wire gonative
-└── cosmos_container.go                # existing — NewCrossPartitionQueryItemsPager unchanged externally
+│   ├── cosmos_query_engine.go         # existing — adds Disabled, ErrUnsupportedPlanFeature
+│   └── gonative/                      # NEW — pure-Go default implementation
+│       ├── engine.go                  # implements queryengine.QueryEngine
+│       ├── pipeline.go                # QueryPipeline fsm (value + aliased)
+│       ├── plan.go                    # plan JSON model + pk-range parser
+│       ├── partition.go               # VALUE-form + aliased-form partition parsers
+│       ├── cmp.go                     # typed Cosmos item comparator (reused by Stage 3)
+│       ├── agg.go                     # COUNT/SUM/MIN/MAX/AVG finalizers
+│       ├── distinct.go                # hash-set dedupe (Stage 2)
+│       ├── merge.go                   # k-way ORDER BY merge (Stage 3)
+│       ├── topskiptake.go             # TOP / OFFSET / LIMIT (Stages 4–5)
+│       ├── group.go                   # GROUP BY hashmap (Stage 6)
+│       ├── testdata/                  # captured plans + partition payloads per query
+│       └── *_test.go                  # unit + AZURE_COSMOS_KEY-guarded integration tests
+├── cosmos_container_query_engine.go   # existing — plan cache wiring + engine-path driver
+└── cosmos_container.go                # existing — NewCrossPartitionQueryItemsPager engages on error
 ```
 
-`gonative` lives under `internal/` so its package surface is not part of the SDK's public API. Only the `queryengine.QueryEngine` interface implementation escapes — everything else in `gonative` can be refactored freely by later stages. No new public API on the `azcosmos` package itself.
+`gonative` is an exported sub-package because `azcosmos` itself imports it. Its public surface is intentionally minimal (`Default() *Engine` + the three `QueryEngine` interface methods); Stage 1 already proved that shape is stable across multiple operator additions. Everything else in the package is unexported.
 
-### 3.2 Activation
+### 3.2 Activation — engage-on-error
 
-Auto-enable with a safe fallback:
+The SDK does **not** default-wire the engine for every caller. Instead, `NewCrossPartitionQueryItemsPager` tries the gateway first, exactly as it did pre-BYT-9239. Only when the gateway returns the specific `BadRequest` — either "cross partition query can not be directly served by the gateway" or the aggregates-specific "Cross partition query only supports 'VALUE <AggregateFunc>' for aggregates" — does the pager pivot to the engine path and retry the query through `executeQueryWithEngine`.
 
-1. If `QueryOptions.QueryEngine == nil`, the SDK injects `gonative.Default()` at the top of `NewCrossPartitionQueryItemsPager`. Callers retain full control: passing a non-nil value overrides; passing a new sentinel `queryengine.Disabled` preserves today's raw-pass-through behavior as an escape hatch.
-2. For every cross-partition query, the SDK fetches the plan. The plan response tells us whether the gateway can serve it directly. If yes, we skip the engine and run the existing fast path — **zero orchestration overhead for single-partition queries beyond the plan round-trip**.
-3. An in-memory LRU plan cache keyed by `(databaseID, containerID, normalizedQuery, features)` on `ContainerClient` (default 256 entries, configurable via `CosmosClientOptions.QueryPlanCacheSize`) amortizes the plan-fetch cost across a SQL-viewer session.
+Contract on `QueryOptions.QueryEngine`:
+
+- `nil` (default) — engage-on-error with `gonative.Default()`. No extra RTTs for queries the gateway already serves.
+- `queryengine.Disabled` — pure gateway path (pre-BYT-9239 behavior). Today no caller sets this; the sentinel is available if a future caller needs an explicit opt-out.
+- Any other non-nil engine — skip the gateway attempt, go straight to `executeQueryWithEngine`. Matches `NewQueryItemsPager`.
+
+Once the engine engages, the plan fetch is routed through the per-container LRU plan cache (keyed by `(databaseID, containerID, normalizedQuery, features)`, default 256 entries, configurable via `ClientOptions.QueryPlanCacheSize`). So a SQL-viewer session that re-runs the same aggregate query pays the plan RTT once.
 
 ### 3.3 Data flow
 
@@ -113,31 +119,44 @@ The engine never invents error types. Gateway errors propagate through unchanged
 
 ## 4. Rollout order and per-stage scope
 
-Seven PRs in dependency order. Each is reviewable standalone, behind a feature announcement in `SupportedFeatures()`, and adds no regression to queries outside its scope.
+Eight PRs total. **Stages 0 and 1 shipped under the old pattern (one fork PR + one Bytebase downstream PR each).** Stages 2–6 follow a new pattern to minimize Bytebase-side review churn: each operator family ships as a **fork PR only**, carrying an `AZURE_COSMOS_KEY`-guarded integration test that proves the stage works against live Azure. No Bytebase PR per stage. **Stage 7 is the single, final Bytebase downstream PR** — it bumps `go.mod` to pick up Stages 2–6 at once, migrates every stage's integration tests into `backend/plugin/db/cosmosdb/`, and adds the Go reproduction harness that mirrors `.NET` for regression.
 
-### Stage 0 — Engine skeleton
-`queryengine/gonative/` package skeleton; default-wiring in `NewCrossPartitionQueryItemsPager`; plan fetch + pk-ranges + LRU plan cache; a pass-through pipeline; `SupportedFeatures()` returns empty — gateway refuses any cross-partition orchestration, exactly like today. **Queries covered:** none (parity). **Tests:** unit (plan cache, pass-through, fallback); integration asserts no regression on the 20 queries currently passing in Go (1.1, 1.2, 2.1–2.9, 3.1–3.3, 7.1, 8.1, 9.1, 9.2, 11.1, 13.1) and the 20 still failing (1.3, 4.1–4.3, 5.1/5.1b/5.2/5.2b/5.3/5.3b/5.4/5.4b/5.5, 6.1, 6.2, 10.1, 10.2, 11.2, 12.1, 12.2).
+This matters because:
+- A Bytebase user only sees the full Cosmos feature set once — at Stage 7 — instead of drip-feed partial unlocks that confuse the upgrade story.
+- Per-stage Bytebase PRs are pure `go.mod` bumps, i.e. reviewer burden without reviewer signal. Collapsing them saves 5 PRs' worth of cycles.
+- Per-stage Azure integration still happens inside the fork's test suite, so we never defer validation to "someday".
 
-### Stage 1 — Scalar aggregates
-`agg.go` with finalizers for `COUNT`, `SUM`, `MIN`, `MAX`, `AVG`. Both `SELECT VALUE agg(x) FROM c` and `SELECT agg(x) AS alias FROM c` (gateway rewrites aliased form to `VALUE` then the pipeline wraps scalar into `{alias: value}`). Multi-aggregate in one SELECT via a parallel state vector. **Queries covered:** 5.1, 5.1b, 5.2, 5.2b, 5.3, 5.3b, 5.4, 5.4b, 5.5, 11.2.
+Each operator stage still advertises a feature in `SupportedFeatures()`, is reviewable standalone, and adds no regression to queries outside its scope.
 
-### Stage 2 — DISTINCT
-`distinct.go`: streaming hash-set keyed on canonical JSON (sorted keys) of the distinct projection. Both object DISTINCT and `DISTINCT VALUE`. Ordered DISTINCT composes with Stage 3 automatically. **Queries covered:** 10.1, 10.2.
+### Stage 0 — Engine skeleton *(shipped)*
+`queryengine/gonative/` package skeleton; default-wiring in `NewCrossPartitionQueryItemsPager`; plan fetch + pk-ranges + LRU plan cache; a pass-through pipeline; `SupportedFeatures()` returns empty — gateway refuses any cross-partition orchestration, exactly like today. **Queries covered:** none (parity). **Tests:** unit (plan cache, pass-through, fallback); integration asserts no regression on the 20 queries currently passing in Go (1.1, 1.2, 2.1–2.9, 3.1–3.3, 7.1, 8.1, 9.1, 9.2, 11.1, 13.1) and the 20 still failing (1.3, 4.1–4.3, 5.1/5.1b/5.2/5.2b/5.3/5.3b/5.4/5.4b/5.5, 6.1, 6.2, 10.1, 10.2, 11.2, 12.1, 12.2). Fork PR #2 (merged); no Bytebase downstream.
+
+### Stage 1 — Scalar aggregates *(shipped)*
+`agg.go` with finalizers for `COUNT`, `SUM`, `MIN`, `MAX`, `AVG`. Both `SELECT VALUE agg(x) FROM c` and the aliased form `SELECT agg(x) AS alias FROM c` (which the gateway emits as a single-group GROUP BY plan with a `payload` wrapper). Multi-aggregate in one SELECT via a parallel state vector. **Queries covered:** 5.1, 5.1b, 5.2, 5.2b, 5.3, 5.3b, 5.4, 5.4b, 5.5, 11.2. Fork PR #3 (merged); Bytebase PR #20104 (one-off `go.mod` bump under the old pattern — will be rebased away or superseded by Stage 7's final bump).
+
+### Stage 2 — DISTINCT *(new pattern starts here)*
+`distinct.go`: streaming hash-set keyed on canonical JSON (sorted keys) of the distinct projection. Both object DISTINCT and `DISTINCT VALUE`. Ordered DISTINCT composes with Stage 3 automatically. **Queries covered:** 10.1, 10.2. **Ships as:** fork PR with unit tests + `TestIntegration_BYT9239_Stage2Queries` (AZURE_COSMOS_KEY-guarded, in the fork's `sdk/data/azcosmos/queryengine/gonative/`).
 
 ### Stage 3 — ORDER BY (single key)
-`merge.go`: min-heap (or max-heap) k-way merge across partition streams, typed comparator using Cosmos item ordering (`undefined < null < bool < number < string`). ASC and DESC. Multi-key ORDER BY (4.3) is **not** added — server-side composite-index requirement, out of scope. **Queries covered:** 4.1, 4.2.
+`merge.go`: min-heap (or max-heap) k-way merge across partition streams, typed comparator using Cosmos item ordering (`undefined < null < bool < number < string`). ASC and DESC. Multi-key ORDER BY (4.3) is **not** added — server-side composite-index requirement, out of scope. **Queries covered:** 4.1, 4.2. **Ships as:** fork PR with integration test for 4.1 + 4.2.
 
 ### Stage 4 — TOP
-`topskiptake.go`: wraps upstream operator, emits first N, cancels upstream on satisfaction (streaming early-termination). Stacks on Stage 3's merger. **Queries covered:** 1.3.
+`topskiptake.go`: wraps upstream operator, emits first N, cancels upstream on satisfaction (streaming early-termination). Stacks on Stage 3's merger. **Queries covered:** 1.3. **Ships as:** fork PR with integration test for 1.3.
 
 ### Stage 5 — OFFSET / LIMIT
-Extends Stage 4 with a skip counter. Cosmos syntactically requires `ORDER BY` before `OFFSET/LIMIT`, so upstream is always the merger. **Queries covered:** 12.1, 12.2.
+Extends Stage 4 with a skip counter. Cosmos syntactically requires `ORDER BY` before `OFFSET/LIMIT`, so upstream is always the merger. **Queries covered:** 12.1, 12.2. **Ships as:** fork PR with integration tests for 12.1 + 12.2.
 
 ### Stage 6 — GROUP BY
-`group.go`: `map[groupKey]*aggState` where `aggState` reuses Stage 1's finalizers. Drains all partitions, emits one row per group. **Queries covered:** 6.1, 6.2.
+`group.go`: `map[groupKey]*aggState` where `aggState` reuses Stage 1's finalizers. Drains all partitions, emits one row per group. **Queries covered:** 6.1, 6.2. **Ships as:** fork PR with integration tests for 6.1 + 6.2.
 
-### Stage 7 — Repro-harness parity (Go twin)
-`scripts/cosmos-repro-go/` mirroring `scripts/cosmos-repro-dotnet/`. Running both against the same target list should produce the same PASS/FAIL column for all 40 queries. Becomes the regression guard for BYT-9239.
+### Stage 7 — Final Bytebase downstream PR (single)
+The only Bytebase-side PR for Stages 2–6 combined. Does three things:
+
+1. **Bumps `go.mod`** to the fork commit that contains Stages 0–6 merged.
+2. **Migrates every stage's integration tests** from the fork (`sdk/data/azcosmos/queryengine/gonative/*_integration_test.go`) into `backend/plugin/db/cosmosdb/` so Bytebase CI exercises them directly. The AZURE_COSMOS_KEY guard is preserved.
+3. **Adds the Go reproduction harness** at `scripts/cosmos-repro-go/` mirroring `scripts/cosmos-repro-dotnet/`. Running both against the same target list must produce the same PASS/FAIL column for all 40 queries — the final regression guard for BYT-9239.
+
+After Stage 7 merges, the fork's stage-scoped integration tests can be deleted as a cleanup follow-up, or left as redundant coverage.
 
 ### Cumulative pass count from the 40-query inventory
 
@@ -271,9 +290,15 @@ Stage 0 is the only stage that reaches beyond `queryengine/gonative/`:
 
 ### 6.1 Rollout mechanics
 
-Each of the seven stages is a separate PR against the `bytebase/azure-sdk-for-go` fork on integration branch `bytebase/cosmos-query-engine`. Merge to fork `main` once all seven land and the Stage 7 Go-twin harness reports 39/40 against both Azure and the emulator. Bytebase's backend picks up the new SDK via a single `go.mod` bump — no per-stage bumps. That bump is the only Bytebase-side reviewable change; it looks like a routine dependency bump.
+Stages 0–6 each ship as an independent PR against the `bytebase/azure-sdk-for-go` fork. Each fork PR includes:
 
-Each fork PR adds a CHANGELOG entry under `1.5.0-beta.6 (Unreleased)`, documenting the newly-announced `SupportedFeatures()` value and the operator it enables.
+- The operator implementation (unit-tested with hand-crafted multi-partition fixtures).
+- One or more `AZURE_COSMOS_KEY`-guarded integration tests in `sdk/data/azcosmos/queryengine/gonative/` that exercise the stage's queries against a live Cosmos account.
+- A CHANGELOG entry under `1.5.0-beta.6 (Unreleased)` documenting the newly-announced `SupportedFeatures()` value and the operator it enables.
+
+Stage 7 is the single Bytebase-side PR. It bumps `go.mod` to the commit that contains Stages 0–6 merged, migrates the fork-side integration tests into `backend/plugin/db/cosmosdb/`, and adds the Go reproduction harness at `scripts/cosmos-repro-go/`.
+
+**Exception:** Stage 1 shipped under the earlier pattern (one fork PR + one separate Bytebase `go.mod` bump) before this approach was codified. That downstream PR either rebases onto Stage 7's final bump or is closed in favor of it; the duplication is acceptable because Stage 1 is already validated end-to-end.
 
 ### 6.2 Observability
 
@@ -311,22 +336,27 @@ No new metrics surface.
 
 ### 6.6 Exit criteria
 
-Before the `go.mod` bump merges into Bytebase:
+**Per-stage (fork PRs, Stages 2–6):**
+
+- All fork unit tests pass under `-race` on Linux amd64, Linux arm64, macOS arm64.
+- The stage's `AZURE_COSMOS_KEY`-guarded integration test passes against the live `bytebase-cosmostest` account covering every query the stage unlocks.
+- CHANGELOG entry under `1.5.0-beta.6 (Unreleased)` names the new feature string.
+
+**Stage 7 (final Bytebase downstream PR):**
 
 - `scripts/cosmos-repro-dotnet/` and `scripts/cosmos-repro-go/` both report 39/40 PASS on the same Azure container; the one FAIL is 4.3 on both.
-- All fork unit tests pass under `-race` on Linux amd64, Linux arm64, macOS arm64.
-- Integration suite passes in the fork CI against Azure (key from secrets); auto-skipped locally without `AZURE_COSMOS_KEY`.
-- CHANGELOG entry in the fork for `1.5.0-beta.6` summarizes the feature and notes the default-activation behavior change.
+- Migrated integration tests (now under `backend/plugin/db/cosmosdb/`) run green in Bytebase CI against Azure (key from secrets); auto-skipped locally without `AZURE_COSMOS_KEY`.
+- `go mod tidy` clean; full server build (`go build ./backend/bin/server/main.go`) clean.
 
-## 7. Open concerns from adversarial review (to be resolved in the implementation plan)
+## 7. Resolutions of adversarial-review concerns
 
-An adversarial review (2026-04-22) raised three high-severity concerns against the spec as written. They are not blockers for starting the plan, but each implementation stage must explicitly decide how to address them.
+An adversarial review (2026-04-22) raised three high-severity concerns against an earlier draft of this spec. Their current status:
 
-1. **Activation regression risk.** Default-wiring `gonative.Default()` for nil callers turns today's single-call gateway path into a multi-call path (plan fetch + PK-range discovery) before the first row is returned. Transient auth/throttle/network failures on those new calls could break queries that succeed today. The implementation plan should either (a) only engage the engine after the gateway returns the specific unsupported-cross-partition error, or (b) keep the engine opt-in and have Bytebase's driver pass it explicitly. Section 3.2's current "auto-enable" wording is the working hypothesis — the plan must test this assumption before Stage 0 merges.
+1. **Activation regression risk** — *resolved in Stage 1.* The SDK implements engage-on-error in `NewCrossPartitionQueryItemsPager`: the gateway is tried first, and the engine is pivoted to only when the gateway returns the specific "cross partition cannot be directly served" `BadRequest`. Queries the gateway can still serve incur zero extra RTTs. `isCrossPartitionUnsupported` (in `cosmos_container.go`) recognizes the two canonical gateway wordings; six unit tests cover its matcher logic.
 
-2. **No operator-level kill switch from Bytebase.** `queryengine.Disabled` is the SDK-side escape hatch, but Bytebase's driver never sets `QueryOptions.QueryEngine`. After the `go.mod` bump, operators can't disable the engine without another code-and-dependency rollout. The plan must add a Bytebase-side config or feature flag (e.g. `BB_COSMOS_DISABLE_QUERY_ENGINE`) that the driver reads and propagates to `QueryOptions.QueryEngine = queryengine.Disabled` when set.
+2. **Operator-level kill switch** — *intentionally dropped.* Bytebase's Cosmos user base is a single customer with a tight feedback loop to the team. Introducing an operational env-var escape hatch encouraged the wrong failure mode: operators toggling the engine off rather than reporting + fixing bugs. The `queryengine.Disabled` sentinel remains in the fork, so if a crisis ever warrants wiring an env var into the Bytebase driver, it is a ~5-line addition. Until then, bias is toward fixing the engine.
 
-3. **Parity harness is too shallow to catch silent wrong-result bugs.** Stage 7's harness compares PASS/FAIL and row counts only (see `scripts/cosmos-repro-dotnet/Program.cs` — it counts `page.Count`, never serializes rows). That won't catch bad ORDER BY merges, DISTINCT leaks, wrong GROUP BY buckets, or malformed VALUE/aliased aggregate shapes. Stage 7 must be upgraded to canonicalize result payloads (sorted JSON for ordered queries, sorted-by-canonical-key for unordered) and diff .NET vs Go row-by-row. The existing `.NET` harness also needs updating to emit the canonical payload.
+3. **Parity harness depth** — *Stage 7 scope.* The Stage 7 final Bytebase PR upgrades the Go harness (and the existing `.NET` harness) to canonicalize result payloads and diff them row-by-row, not just compare PASS/FAIL counts. Documented in the Stage 7 description in §4.
 
 ## 8. Appendix — reproduction artifacts
 
