@@ -116,7 +116,7 @@ The engine never invents error types. Gateway errors propagate through unchanged
 Seven PRs in dependency order. Each is reviewable standalone, behind a feature announcement in `SupportedFeatures()`, and adds no regression to queries outside its scope.
 
 ### Stage 0 — Engine skeleton
-`queryengine/internal/gonative/` package skeleton; default-wiring in `NewCrossPartitionQueryItemsPager`; plan fetch + pk-ranges + LRU plan cache; a pass-through pipeline; `SupportedFeatures()` returns empty — gateway refuses any cross-partition orchestration, exactly like today. **Queries covered:** none (parity). **Tests:** unit (plan cache, pass-through, fallback); integration asserts no regression on the 20 queries currently passing in Go (1.1, 1.2, 2.1–2.9, 3.1–3.3, 7.1, 8.1, 9.1, 9.2, 11.1, 13.1) and the 20 still failing (1.3, 4.1–4.3, 5.1/5.1b/5.2/5.2b/5.3/5.3b/5.4/5.4b/5.5, 6.1, 6.2, 10.1, 10.2, 11.2, 12.1, 12.2).
+`queryengine/gonative/` package skeleton; default-wiring in `NewCrossPartitionQueryItemsPager`; plan fetch + pk-ranges + LRU plan cache; a pass-through pipeline; `SupportedFeatures()` returns empty — gateway refuses any cross-partition orchestration, exactly like today. **Queries covered:** none (parity). **Tests:** unit (plan cache, pass-through, fallback); integration asserts no regression on the 20 queries currently passing in Go (1.1, 1.2, 2.1–2.9, 3.1–3.3, 7.1, 8.1, 9.1, 9.2, 11.1, 13.1) and the 20 still failing (1.3, 4.1–4.3, 5.1/5.1b/5.2/5.2b/5.3/5.3b/5.4/5.4b/5.5, 6.1, 6.2, 10.1, 10.2, 11.2, 12.1, 12.2).
 
 ### Stage 1 — Scalar aggregates
 `agg.go` with finalizers for `COUNT`, `SUM`, `MIN`, `MAX`, `AVG`. Both `SELECT VALUE agg(x) FROM c` and `SELECT agg(x) AS alias FROM c` (gateway rewrites aliased form to `VALUE` then the pipeline wraps scalar into `{alias: value}`). Multi-aggregate in one SELECT via a parallel state vector. **Queries covered:** 5.1, 5.1b, 5.2, 5.2b, 5.3, 5.3b, 5.4, 5.4b, 5.5, 11.2.
@@ -241,7 +241,7 @@ Multi-aggregate (`SELECT MIN(x) AS a, MAX(x) AS b`): gateway emits `aggregates: 
 
 ### 5.5 Private helpers the fork touches
 
-Stage 0 is the only stage that reaches beyond `queryengine/internal/gonative/`:
+Stage 0 is the only stage that reaches beyond `queryengine/gonative/`:
 
 | File | Change |
 |---|---|
@@ -304,7 +304,7 @@ No new metrics surface.
 
 ### 6.5 Follow-ups (out of scope)
 
-1. Upstream PR to `Azure/azure-sdk-for-go` with `queryengine/internal/gonative/` — separate issue after Stage 6 soaks for a week on Bytebase's staging.
+1. Upstream PR to `Azure/azure-sdk-for-go` with `queryengine/gonative/` — separate issue after Stage 6 soaks for a week on Bytebase's staging.
 2. UI hint for composite-index errors (query 4.3 class) — frontend-only PR, separate from BYT-9239.
 3. `ReadManyItems` parity — if Bytebase ever adopts ReadMany.
 4. Remove `backend/plugin/db/cosmosdb/emulator.go` if the engine obsoletes the hand-rolled REST fallback — verify during Stage 7.

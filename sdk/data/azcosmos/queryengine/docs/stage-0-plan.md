@@ -4,7 +4,7 @@
 
 **Goal:** Land the plumbing for the pure-Go distributed query engine inside the Bytebase fork of `azcosmos` as a reviewable, zero-behavior-change PR: sentinels, the `gonative` package skeleton with an inert default engine, the plan cache on `ContainerClient`, and a configurable cache size — all without activating the engine yet.
 
-**Architecture:** All changes land in the fork `github.com/bytebase/azure-sdk-for-go/sdk/data/azcosmos`. The new `queryengine/internal/gonative/` sub-package holds the implementation; `queryengine` itself gets two sentinels (`Disabled`, `ErrUnsupportedPlanFeature`). `ContainerClient` gains an LRU plan cache field that is allocated but unused in Stage 0; `ClientOptions` gains a `QueryPlanCacheSize` knob. No change to any public API signature. `NewCrossPartitionQueryItemsPager` is deliberately untouched — activation and fallback are Stage 1 territory.
+**Architecture:** All changes land in the fork `github.com/bytebase/azure-sdk-for-go/sdk/data/azcosmos`. The new `queryengine/gonative/` sub-package holds the implementation; `queryengine` itself gets two sentinels (`Disabled`, `ErrUnsupportedPlanFeature`). `ContainerClient` gains an LRU plan cache field that is allocated but unused in Stage 0; `ClientOptions` gains a `QueryPlanCacheSize` knob. No change to any public API signature. `NewCrossPartitionQueryItemsPager` is deliberately untouched — activation and fallback are Stage 1 territory.
 
 **Tech Stack:** Go 1.21+; `github.com/hashicorp/golang-lru/v2` (already a transitive dep in Bytebase; fork depends on stdlib only today — we add the LRU dep); standard `testing` + `testify` (already used in the fork's tests).
 
@@ -193,15 +193,15 @@ git commit -m "azcosmos: add Disabled sentinel and ErrUnsupportedPlanFeature to 
 ## Task 3: Create the `gonative` package skeleton
 
 **Files:**
-- Create: `sdk/data/azcosmos/queryengine/internal/gonative/doc.go`
-- Create: `sdk/data/azcosmos/queryengine/internal/gonative/engine.go`
-- Create: `sdk/data/azcosmos/queryengine/internal/gonative/engine_test.go`
+- Create: `sdk/data/azcosmos/queryengine/gonative/doc.go`
+- Create: `sdk/data/azcosmos/queryengine/gonative/engine.go`
+- Create: `sdk/data/azcosmos/queryengine/gonative/engine_test.go`
 
 Purpose: introduce the package where Stage 1+ operators will live. For Stage 0, the package exposes only `Default()`, which returns an engine that advertises no features and rejects every `CreateQueryPipeline` call with `ErrUnsupportedPlanFeature` — semantically identical to `queryengine.Disabled` today, but a distinct type so later stages can extend it in place.
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `sdk/data/azcosmos/queryengine/internal/gonative/engine_test.go`:
+Create `sdk/data/azcosmos/queryengine/gonative/engine_test.go`:
 
 ```go
 // Copyright (c) Microsoft Corporation. All rights reserved.
@@ -214,7 +214,7 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos/queryengine"
-	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos/queryengine/internal/gonative"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos/queryengine/gonative"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -251,12 +251,12 @@ func TestDefaultReturnsDistinctEngineInstances(t *testing.T) {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd sdk/data/azcosmos && go test ./queryengine/internal/gonative/... -run "^TestDefault" -count=1 -v`
+Run: `cd sdk/data/azcosmos && go test ./queryengine/gonative/... -run "^TestDefault" -count=1 -v`
 Expected: compilation error — package `gonative` does not exist.
 
 - [ ] **Step 3: Create the package doc file**
 
-Create `sdk/data/azcosmos/queryengine/internal/gonative/doc.go`:
+Create `sdk/data/azcosmos/queryengine/gonative/doc.go`:
 
 ```go
 // Copyright (c) Microsoft Corporation. All rights reserved.
@@ -275,7 +275,7 @@ package gonative
 
 - [ ] **Step 4: Create the engine implementation**
 
-Create `sdk/data/azcosmos/queryengine/internal/gonative/engine.go`:
+Create `sdk/data/azcosmos/queryengine/gonative/engine.go`:
 
 ```go
 // Copyright (c) Microsoft Corporation. All rights reserved.
@@ -320,25 +320,25 @@ func (e *Engine) CreateReadManyPipeline(_ []queryengine.ItemIdentity, _ string, 
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd sdk/data/azcosmos && go test ./queryengine/internal/gonative/... -count=1 -v`
+Run: `cd sdk/data/azcosmos && go test ./queryengine/gonative/... -count=1 -v`
 Expected: all five tests PASS.
 
 - [ ] **Step 6: Verify the engine satisfies the interface at compile time**
 
-Add an interface-conformance assertion. Edit `sdk/data/azcosmos/queryengine/internal/gonative/engine.go`, immediately after the `Engine` struct definition:
+Add an interface-conformance assertion. Edit `sdk/data/azcosmos/queryengine/gonative/engine.go`, immediately after the `Engine` struct definition:
 
 ```go
 // Compile-time check that *Engine satisfies the interface.
 var _ queryengine.QueryEngine = (*Engine)(nil)
 ```
 
-Run: `cd sdk/data/azcosmos && go build ./queryengine/internal/gonative/...`
+Run: `cd sdk/data/azcosmos && go build ./queryengine/gonative/...`
 Expected: build succeeds.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add sdk/data/azcosmos/queryengine/internal/gonative/
+git add sdk/data/azcosmos/queryengine/gonative/
 git commit -m "azcosmos: add gonative package with inert Default engine"
 ```
 
@@ -663,7 +663,7 @@ git commit -m "azcosmos: add per-container LRU plan cache (allocated, unused in 
 At the top of the file, find the `## 1.5.0-beta.6 (Unreleased)` section. Under `### Other Changes` (if present, else under `### Features Added`), append:
 
 ```markdown
-* Added `queryengine.Disabled` sentinel and `queryengine.ErrUnsupportedPlanFeature` error, plus a new `queryengine/internal/gonative` sub-package housing the pure-Go query engine that later stages will flesh out. No behavior change in Stage 0 — the engine is inert and not yet auto-enabled. See BYT-9239.
+* Added `queryengine.Disabled` sentinel and `queryengine.ErrUnsupportedPlanFeature` error, plus a new `queryengine/gonative` sub-package housing the pure-Go query engine that later stages will flesh out. No behavior change in Stage 0 — the engine is inert and not yet auto-enabled. See BYT-9239.
 * Added `ClientOptions.QueryPlanCacheSize` and a per-container LRU plan cache; unused in Stage 0.
 ```
 
