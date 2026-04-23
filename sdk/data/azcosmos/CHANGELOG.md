@@ -4,8 +4,10 @@
 
 ### Features Added
 
-* Added `queryengine.Disabled` sentinel and `queryengine.ErrUnsupportedPlanFeature` error, plus a new `queryengine/internal/gonative` sub-package housing the pure-Go query engine that later stages will flesh out. No behavior change in this release — the engine is inert and is not yet auto-enabled. See [BYT-9239](https://linear.app/bytebase/issue/BYT-9239).
-* Added `ClientOptions.QueryPlanCacheSize` and a per-container LRU plan cache; allocated at container construction but unused in this release.
+* Added pure-Go distributed query engine with scalar aggregate support (`COUNT`, `SUM`, `MIN`, `MAX`, `AVG`) covering both `VALUE agg(...)` and `agg(...) AS alias` forms, including multi-aggregate in a single SELECT. `NewCrossPartitionQueryItemsPager` now engages the engine on-error: when the gateway returns the specific "cross partition cannot be directly served" BadRequest, the pager pivots to the engine instead of surfacing the error. Queries the gateway can still serve incur no extra round-trip. See [BYT-9239](https://linear.app/bytebase/issue/BYT-9239).
+* Added `queryengine.Disabled` sentinel and `queryengine.ErrUnsupportedPlanFeature` error.
+* Added `queryengine/gonative` sub-package that implements `queryengine.QueryEngine` with the aggregate operators listed above.
+* Added `ClientOptions.QueryPlanCacheSize` and a per-container LRU plan cache. The cache is consulted around `getQueryPlanFromGateway` in the engine path so repeated queries within a session skip the plan round-trip.
 
 ### Breaking Changes
 

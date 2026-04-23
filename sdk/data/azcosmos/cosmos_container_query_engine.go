@@ -101,9 +101,8 @@ func (c *ContainerClient) executeQueryWithEngine(queryEngine queryengine.QueryEn
 		},
 		Fetcher: func(ctx context.Context, page *QueryItemsResponse) (QueryItemsResponse, error) {
 			if queryPipeline == nil {
-				// First page, we need to fetch the query plan and PK ranges
-				// TODO: We could proactively try to run this query against the gateway and then fall back to the engine. That's what Python does.
-				plan, err := c.getQueryPlanFromGateway(ctx, query, queryEngine.SupportedFeatures(), queryOptions, operationContext)
+				// First page: fetch (or reuse cached) the query plan and partition-key-range list.
+				plan, err := c.getQueryPlanCached(ctx, query, queryEngine.SupportedFeatures(), queryOptions, operationContext)
 				if err != nil {
 					return QueryItemsResponse{}, err
 				}
@@ -375,4 +374,37 @@ func (r *queryRequest) toHeaders() *map[string]string {
 	}
 	headers[cosmosHeaderPartitionKeyRangeId] = r.PartitionKeyRangeID
 	return &headers
+}
+
+// getQueryPlanCached returns the query plan for (c, query, features), fetching
+// from the gateway on first use and memoizing in the container's planCache.
+//
+// The cache is opt-in per ClientOptions.QueryPlanCacheSize: a nil planCache
+// means the caller disabled caching, so we fall through to a direct fetch.
+func (c *ContainerClient) getQueryPlanCached(
+	ctx context.Context,
+	query string,
+	supportedFeatures string,
+	queryOptions *QueryOptions,
+	operationContext pipelineRequestOptions,
+) ([]byte, error) {
+	if c.planCache == nil {
+		return c.getQueryPlanFromGateway(ctx, query, supportedFeatures, queryOptions, operationContext)
+	}
+	key := planCacheKey{
+		databaseID:      c.database.id,
+		containerID:     c.id,
+		normalizedQuery: query,
+		features:        supportedFeatures,
+	}
+	if cached, ok := c.planCache.Get(key); ok {
+		log.Writef(EventQueryEngine, "Query plan cache hit for %s/%s", c.database.id, c.id)
+		return cached, nil
+	}
+	plan, err := c.getQueryPlanFromGateway(ctx, query, supportedFeatures, queryOptions, operationContext)
+	if err != nil {
+		return nil, err
+	}
+	c.planCache.Add(key, plan)
+	return plan, nil
 }
